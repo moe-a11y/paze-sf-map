@@ -1,0 +1,7 @@
+# Raw upstream payloads: 47 MB, regenerable, and not ours to redistribute.
+# Rebuild with the fetch steps documented in notes/sources.md.
+data/cache/
+
+__pycache__/
+*.pyc
+.DS_Store

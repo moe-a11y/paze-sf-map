@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101216">
+<title>Paze Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root{
+    --ink:#12141a; --muted:#6b7280; --line:#e6e8ee; --card:#fff; --bg:#f4f5f8;
+    --star:#f0a500; --ok:#12b76a; --dead:#e5484d; --warn:#f79009; --accent:#2f6bff;
+    --sb: env(safe-area-inset-bottom, 0px);
+    --st: env(safe-area-inset-top, 0px);
+    --sheet-peek: 132px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --ink:#eceef4; --muted:#98a0b3; --line:#2a2e3a; --card:#181b22; --bg:#0e1014; }
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+
+  /* ---------- full-bleed map ---------- */
+  #map{position:fixed;inset:0;z-index:0;background:var(--bg)}
+
+  /* ---------- floating top bar ---------- */
+  .top{
+    position:fixed;z-index:500;left:10px;right:10px;top:calc(10px + var(--st));
+    display:flex;gap:8px;align-items:center;pointer-events:none;
+  }
+  .chip{
+    pointer-events:auto;background:var(--card);border:1px solid var(--line);
+    border-radius:999px;padding:8px 13px;font-size:12.5px;font-weight:650;
+    box-shadow:0 4px 18px rgba(10,15,30,.14);white-space:nowrap;
+  }
+  .chip .n{color:var(--ok)}
+  .chip .d{color:var(--warn)}
+  .grow{flex:1 1 auto}
+
+  /* ---------- locate button ---------- */
+  .locbtn{
+    position:fixed;z-index:500;right:12px;
+    bottom:calc(var(--sheet-peek) + 16px + var(--sb));
+    width:46px;height:46px;border-radius:50%;
+    background:var(--card);border:1px solid var(--line);color:var(--accent);
+    box-shadow:0 5px 20px rgba(10,15,30,.20);
+    display:grid;place-items:center;cursor:pointer;transition:bottom .28s cubic-bezier(.3,.9,.3,1);
+  }
+  .locbtn svg{width:21px;height:21px;display:block}
+  .locbtn.up{bottom:calc(78vh + 12px)}
+  .toast{
+    position:fixed;z-index:600;left:50%;transform:translateX(-50%);
+    bottom:calc(var(--sheet-peek) + 74px + var(--sb));
+    background:#1b1e26;color:#fff;font-size:12.5px;font-weight:600;
+    padding:8px 14px;border-radius:999px;opacity:0;transition:opacity .25s;pointer-events:none;
+    box-shadow:0 6px 22px rgba(0,0,0,.3);
+  }
+  .toast.on{opacity:1}
+
+  /* ---------- pull-up sheet ---------- */
+  .sheet{
+    position:fixed;z-index:550;left:0;right:0;bottom:0;
+    height:78vh;background:var(--card);
+    border-radius:18px 18px 0 0;
+    box-shadow:0 -8px 34px rgba(10,15,30,.20);
+    display:flex;flex-direction:column;
+    transform:translateY(calc(78vh - var(--sheet-peek)));
+    transition:transform .3s cubic-bezier(.3,.9,.3,1);
+    touch-action:none;
+  }
+  .sheet.open{transform:translateY(0)}
+  .sheet.drag{transition:none}
+  .grab{padding:9px 0 5px;display:grid;place-items:center;cursor:grab;flex:0 0 auto}
+  .grab i{display:block;width:38px;height:4.5px;border-radius:3px;background:var(--line)}
+  .shead{padding:0 14px 9px;display:flex;gap:8px;align-items:center;flex:0 0 auto}
+  .count{font-size:13px;font-weight:750;letter-spacing:.2px}
+  .count em{color:var(--muted);font-style:normal;font-weight:500}
+  .seg{margin-left:auto;display:flex;background:var(--bg);border:1px solid var(--line);
+       border-radius:9px;overflow:hidden}
+  .seg button{background:none;border:0;color:var(--muted);font:inherit;font-size:12.5px;
+              font-weight:650;padding:7px 11px;cursor:pointer}
+  .seg button[aria-pressed=true]{background:var(--accent);color:#fff}
+  .srch{padding:0 14px 10px;flex:0 0 auto}
+  .srch input{
+    width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);
+    border-radius:10px;padding:10px 12px;font-size:15px;
+  }
+  .srch input::placeholder{color:var(--muted)}
+  #list{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
+        padding-bottom:calc(16px + var(--sb));touch-action:pan-y}
+  .item{display:flex;gap:11px;align-items:center;padding:11px 14px;
+        border-top:1px solid var(--line);cursor:pointer}
+  .item:active{background:var(--bg)}
+  .dot{flex:0 0 auto;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 3px rgba(0,0,0,.05)}
+  .body{flex:1 1 auto;min-width:0}
+  .nm{font-weight:650;font-size:14.5px;display:flex;gap:5px;align-items:center}
+  .nm .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta{color:var(--muted);font-size:12.5px;margin-top:1px;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dist{flex:0 0 auto;color:var(--accent);font-size:12.5px;font-weight:750;min-width:54px;text-align:right}
+  .pill{font-size:9.5px;font-weight:800;padding:1.5px 5px;border-radius:5px;letter-spacing:.3px}
+  .pill.dead{background:rgba(229,72,77,.13);color:var(--dead)}
+  .pill.off{background:rgba(247,144,9,.14);color:var(--warn)}
+  .empty{padding:30px 16px;text-align:center;color:var(--muted)}
+
+  /* ---------- markers ---------- */
+  .pin{position:relative;width:100%;height:100%}
+  .pin b{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:15px;height:15px;border-radius:50%;background:var(--accent);
+    border:3px solid #fff;box-shadow:0 2px 7px rgba(10,15,30,.45);
+  }
+  .pin.s b{width:25px;height:25px;background:var(--star);border-width:3.5px;
+           box-shadow:0 3px 11px rgba(180,120,0,.55)}
+  .pin.s:after{
+    content:"\2605";position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%);color:#fff;font-size:13px;line-height:1;
+    text-shadow:0 1px 1px rgba(0,0,0,.35);
+  }
+  .pin.off b{background:var(--warn)}
+  .pin.dead b{background:var(--dead);opacity:.65}
+  .pin.hi b{outline:3px solid var(--accent);outline-offset:3px}
+  .me{width:100%;height:100%;border-radius:50%;background:var(--accent);
+      border:3px solid #fff;box-shadow:0 0 0 6px rgba(47,107,255,.22),0 2px 8px rgba(0,0,0,.35)}
+
+  .leaflet-popup-content-wrapper{background:var(--card);color:var(--ink);
+    border-radius:13px;box-shadow:0 8px 30px rgba(10,15,30,.22)}
+  .leaflet-popup-tip{background:var(--card)}
+  .leaflet-popup-content{margin:12px 14px;font-size:14px}
+  .pop h3{margin:0 0 3px;font-size:15px;line-height:1.25}
+  .pop .pm{color:var(--muted);font-size:12.5px;margin-bottom:9px}
+  .pop a{display:inline-block;background:var(--accent);color:#fff;font-weight:700;
+         text-decoration:none;padding:8px 13px;border-radius:9px;font-size:13px}
+  .pop a.off{background:var(--bg);color:var(--muted);pointer-events:none}
+  .leaflet-control-attribution{font-size:9px;opacity:.6}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="top">
+  <div class="chip"><span class="n" id="credits"></span></div>
+  <div class="chip"><span class="d" id="days"></span></div>
+  <div class="grow"></div>
+</div>
+
+<button class="locbtn" id="loc" aria-label="Locate me">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3.2"></circle><path d="M12 2v3.2M12 18.8V22M2 12h3.2M18.8 12H22"></path>
+    <circle cx="12" cy="12" r="8"></circle>
+  </svg>
+</button>
+<div class="toast" id="toast"></div>
+
+<div class="sheet" id="sheet">
+  <div class="grab" id="grab"><i></i></div>
+  <div class="shead">
+    <div class="count" id="count"></div>
+    <div class="seg">
+      <button id="bAll"  aria-pressed="true">All</button>
+      <button id="bStar" aria-pressed="false">&#9733;</button>
+      <button id="bOpen" aria-pressed="false">Usable</button>
+    </div>
+  </div>
+  <div class="srch"><input type="search" id="q" placeholder="Search name or area…" autocomplete="off"></div>
+  <div id="list"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+/* ------------------------------------------------------------------
+   HAND-EDIT THIS BLOCK. One entry per redemption you actually used.
+   Counter = maxPerCard minus how many you have logged, per card.
+   ------------------------------------------------------------------ */
+/* REDEMPTIONS-START */
+const REDEMPTIONS = {
+  "maxPerCard": 10,
+  "maxCreditPerCard": 100,
+  "cards": {
+    "Card 1": [],
+    "Card 2": []
+  }
+};
+/* REDEMPTIONS-END */
+
+/* Merchant data. Regenerate: python3 scripts/make_map.py
+   n=name a=address h=area y=lat x=lon u=url c=category
+   s=starred st=status(ok|disabled|dead) p=paze w=warnings */
+const M = [{"n":"Alborz","a":"1245 Van Ness Ave, San Francisco, CA","h":"Cathedral Hill","y":37.787391,"x":-122.421977,"u":"https://alborz-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"Crostini And Java","a":"899 Hyde St (Bush and Hyde)","h":"Lower Nob Hill","y":37.789111,"x":-122.417099,"u":"https://crostiniandjavasf.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"De Afghanan Kabob House","a":"321 Kearny Street, San Francisco, CA","h":"Chinatown","y":37.791079,"x":-122.404362,"u":"https://de-afghanan-kabob-house-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"Flats Burgers","a":"4753 Mission St","h":"Excelsior","y":37.722118,"x":-122.436407,"u":"https://flatsburgers.cloveronline.com","c":"restaurants","s":1,"st":"disabled","p":"yes","w":[]},{"n":"Georgian Cheese Boat","a":"1224 Grant Avenue, San Francisco, CALIFORNIA","h":"North Beach","y":37.798367,"x":-122.406929,"u":"https://georgian-cheese-boat-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"HAPPY DONUT Van Ness","a":"2101 Van Ness Ave, San Francisco, CA","h":"Pacific Heights","y":37.794923,"x":-122.423549,"u":"https://happy-donut-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"Himalayan Pizza & Momo","a":"288 Golden Gate Ave, San Francisco, CA","h":"Tenderloin","y":37.781927,"x":-122.415372,"u":"https://himalayan-pizza-and-momo-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"KRISPY KRUNCHY CHICKEN","a":"2126 Irving Street","h":"Outer Sunset","y":37.763531,"x":-122.480853,"u":"https://krispy-krunchy-chicken-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":["address approximate"]},{"n":"Mashaallah Halal Food","a":"315 5th St, San Francisco, CA","h":"South of Market","y":37.780098,"x":-122.402901,"u":"https://mashaallah-halal-food-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"Naan Point","a":"851 Cherry Ave, San Bruno, CA","h":"San Bruno","y":37.62679,"x":-122.425555,"u":"https://naan-point-san-bruno.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"Naan Point #2","a":"314 Westlake Center, Daly City, CALIFORNIA","h":"Daly City","y":37.700553,"x":-122.483475,"u":"https://naan-point-2-daly-city.cloveronline.com","c":"restaurants","s":1,"st":"disabled","p":"yes","w":[]},{"n":"Pakwan 16th St","a":"3180 16th Street, San Francisco, CA","h":"Mission Dolores","y":37.764939,"x":-122.423647,"u":"https://pakwan-restaurant-16th-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"disabled","p":"yes","w":[]},{"n":"Pakwan O'Farrell","a":"501 O'farrell Street, San Francisco, CA","h":"Tenderloin","y":37.785571,"x":-122.413196,"u":"https://pakwan-ofarrell-san-francisco-2.cloveronline.com","c":"restaurants","s":1,"st":"disabled","p":"yes","w":[]},{"n":"Panchitas Restaurant #2","a":"3091 16th St, San Francisco, CA","h":"Mission","y":37.76478,"x":-122.421618,"u":"https://panchitas-restaurant-2-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"Sf Kebab","a":"550 16th Street, San Francisco, CA","h":"Mission Bay","y":37.76755,"x":-122.39038,"u":"https://sf-kebab-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"T.L KITCHEN KRISPY KRUNCHY CHICKEN","a":"177 Eddy St, San Francisco, CA","h":"Tenderloin","y":37.783967,"x":-122.410458,"u":"https://tl-kitchen-krispy-krunchy-chicken-san-francisco.cloveronline.com","c":"restaurants","s":1,"st":"dead","p":"unchecked","w":[]},{"n":"The Sub Stop Deli","a":"6178 Mission Street, Daly City, CALIFORNIA","h":"Daly City","y":37.706936,"x":-122.458753,"u":"https://thesubstopdeli.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"Yifang Taiwan Fruit Tea (Inner Sunset)","a":"645 Irving Street, San Francisco, CA","h":"Inner Sunset","y":37.763977,"x":-122.46499,"u":"https://yifanginnersunset.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"YiFang Taiwan Fruit Tea (Japantown)","a":"1737 Post St # 367, San Francisco, CA","h":"Japantown","y":37.785126,"x":-122.43029,"u":"https://yifangfruittea.cloveronline.com","c":"restaurants","s":1,"st":"ok","p":"yes","w":[]},{"n":"16th Street Diner","a":"3147 16th Street,, San Francisco, CA","h":"Mission Dolores","y":37.764731,"x":-122.423109,"u":"https://16th-street-diner-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"5 Star Food & Liquor Inc","a":"812 Linden Ave, So San Francisco, CA","h":"South San Francisco","y":37.660534,"x":-122.408035,"u":"https://5-star-food-liquor-inc-so-san-francisco.cloveronline.com","c":"Retail & Services","s":0,"st":"ok","p":"yes","w":[]},{"n":"5th Avenue Deli Market","a":"4 Embarcadero Sl7, San Francisco, CA","h":"Financial District","y":37.79512,"x":-122.396149,"u":"https://5th-avenue-deli-market-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"A G I","a":"4945 Junipero Serra Blvd, Colma, CA","h":"Colma","y":37.673953,"x":-122.465138,"u":"https://house-of-bagels-colma.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Amour Amour Cafe","a":"305 East 4th Avenue, San Mateo, CA","h":"San Mateo","y":37.565074,"x":-122.321403,"u":"https://amour-amour-cafe-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Angel Cafe & Deli","a":"700 Geary St","h":"Lower Nob Hill","y":37.786609,"x":-122.414982,"u":"https://angel-cafe-deli-san-francisco8.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"AragonHSAthleticBoosters","a":"900 Alameda De Las Pulga, San Mateo, CA","h":"San Mateo","y":37.524597,"x":-122.339094,"u":"https://aragon-hs-athletic-boste-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Atlas Pizza Parlor","a":"637 San Mateo Avenue, San Bruno, CA","h":"San Bruno","y":37.627112,"x":-122.411641,"u":"https://atlas-pizza-parlor-inc-san-bruno.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Autumns Cafe & Catering","a":"2071 3rd Street, San Francisco, CA","h":"Dogpatch","y":37.763509,"x":-122.388584,"u":"https://autumns-cafe-catering-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Aydea","a":"799 Bryant Street, San Francisco, CA","h":"South of Market","y":37.776119,"x":-122.402156,"u":"https://aydea-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Baba`S Chicken","a":"3605 Market Street, Riverside, CA","h":"Eureka Valley","y":37.756078,"x":-122.440782,"u":"https://babas-hot-chicken-riverside.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":["location unconfirmed"]},{"n":"Bac Lieu Restaurant","a":"3216 Mission St, San Francisco, CA","h":"Bernal Heights","y":37.745258,"x":-122.420413,"u":"https://bac-lieu-restaurant-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Bandb Cafe","a":"1634 Irving Street, San Francisco, CA","h":"Inner Sunset","y":37.763816,"x":-122.475698,"u":"https://b-b-cafe-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Barista Coffee & Brunch","a":"3313 Sacramento Street, San Francisco, CALIFORNIA","h":"Presidio Heights","y":37.787995,"x":-122.447276,"u":"https://barista-cafe-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Bayside Cafe","a":"533 Airport Blvd #127, Burlingame, CA","h":"Burlingame","y":37.589907,"x":-122.340643,"u":"https://bayside-cafe-burlingame.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Beluna Cafe","a":"1195 Oak Street, San Francisco, CA","h":"Buena Vista","y":37.772835,"x":-122.438913,"u":"https://beluna-cafe-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Big Apple Pizza N Grill","a":"127 Eddy Street, San Francisco, CA","h":"Tenderloin","y":37.784182,"x":-122.409772,"u":"https://big-apple-pizza-n-grill-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Bill's Place","a":"2315 Clement St","h":"Outer Richmond","y":37.781946,"x":-122.484172,"u":"https://bills-place-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"BIMI POKE @Metreon","a":"135 4th Street, San Francisco, CA","h":"South of Market","y":37.784332,"x":-122.403366,"u":"https://bimi-poke-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Black Point Coffee","a":"Sfo Intl Airport, Term A, San Francisco, CA","h":"San Francisco","y":37.622639,"x":-122.395821,"u":"https://black-point-coffee-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Blowology Dry Bar","a":"166 Geary St #1000, San Francisco, CA","h":"Downtown / Union Square","y":37.787835,"x":-122.406177,"u":"https://blowology-dry-bar-llc-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Blue Fog Market","a":"2567 Gough St, San Francisco, CA","h":"Pacific Heights","y":37.79708,"x":-122.427326,"u":"https://blue-fog-market-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Blumdmart","a":"1 Market Street, San Francisco, CA","h":"Financial District","y":37.794026,"x":-122.394973,"u":"https://blumdmart.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Bravo Pizza","a":"5145 Mission St, San Francisco, CA","h":"Excelsior","y":37.716521,"x":-122.440784,"u":"https://bravo-pizza-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Breakers","a":"145 Rockaway Beach Ave, Pacifica, CA","h":"Pacifica","y":37.609728,"x":-122.496484,"u":"https://breakers-pacifica.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Broadway Grill","a":"1400 Broadway","h":"Burlingame","y":37.584778,"x":-122.365839,"u":"https://broadway-grill-llc-burlingame.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Caffe Stellato","a":"1112 Burlingame Ave, Burlingame, CA","h":"Burlingame","y":37.579556,"x":-122.345906,"u":"https://caffe-stellato-burlingame.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Cajun Bowl","a":"1230 El Camino Real, San Bruno, CA","h":"San Bruno","y":37.639401,"x":-122.420933,"u":"https://cajun-bowl-san-bruno-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Cajun Bowl San Mateo","a":"168 East 4th Avenue, San Mateo, CA","h":"San Mateo","y":37.563767,"x":-122.322377,"u":"https://cajun-bowl-sm-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Catch Seafood","a":"2362 Market St, San Francisco, CA","h":"Duboce Triangle","y":37.763429,"x":-122.434641,"u":"https://catch-french-bistro-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Chibog","a":"2055 Gellert Boulevard, Daly City, CALIFORNIA","h":"Daly City","y":37.650279,"x":-122.453901,"u":"https://chibogrestaurant.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Clancey's Market and Deli","a":"3960 Irving St","h":"Outer Sunset","y":37.76268,"x":-122.50042,"u":"https://clanceys-market-deli-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Cobani Gyro & Kebab","a":"8 W 25th Ave","h":"San Mateo","y":37.54447,"x":-122.30613,"u":"https://cobani-gyro-kebab-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Coco\u2019s Sushi","a":"3319 Mission St","h":"Bernal Heights","y":37.743782,"x":-122.420868,"u":"https://cocos-sushi-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Copper Chimney","a":"489 3rd Street, San Francisco, CA","h":"South of Market","y":37.781691,"x":-122.39591,"u":"https://curry-kabab-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Corona Heights Market","a":"4400 17th St, San Francisco, CA","h":"Buena Vista","y":37.762143,"x":-122.443458,"u":"https://corona-heights-market-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Creightons Fine Pastries LLC","a":"673 Portola Dr, San Francisco, CA","h":"Miraloma Park","y":37.744684,"x":-122.452627,"u":"https://creightons-fine-pastries-llc-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Cumaica Coffee","a":"1398 Mission Street, San Francisco, CA","h":"South of Market","y":37.775538,"x":-122.415912,"u":"https://cumaicacoffee.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"CURRY HYUGA - Burlingame","a":"1204 Broadway, Burlingame, CA","h":"Burlingame","y":37.586192,"x":-122.36484,"u":"https://curry-hyuga-retail-burlingame.cloveronline.com","c":"Retail & Services","s":0,"st":"disabled","p":"yes","w":[]},{"n":"DANCING YAK","a":"280 Valencia Street","h":"Mission Dolores","y":37.768358,"x":-122.422396,"u":"https://dancing-yak-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["address approximate"]},{"n":"Dhgs","a":"260 El Camino Real, San Bruno, CA","h":"San Bruno","y":37.618951,"x":-122.409362,"u":"https://diamondheadgeneralstore.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"District Tea","a":"2154 Mission Street, San Francisco, CALIFORNIA","h":"Mission","y":37.76252,"x":-122.419701,"u":"https://district-tea-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Do-Re-Mi","a":"3491 19th Street, San Francisco, CALIFORNIA","h":"Mission","y":37.759876,"x":-122.421158,"u":"https://doremi-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Do-Re-Mi (Chinatown)","a":"956 Grant Ave, San Francisco, CA","h":"Chinatown","y":37.795813,"x":-122.406487,"u":"https://doremi-chinatown-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Doppio Coffee & Brunch","a":"1551 Mission Street, San Francisco, CALIFORNIA","h":"South of Market","y":37.773315,"x":-122.418013,"u":"https://doppio-cafe-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"DragonEats","a":"520 Gough St","h":"Civic Center","y":37.778371,"x":-122.42314,"u":"https://dragoneats-gough-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"DRAGONEATS Folsom","a":"555 Folsom St, San Francisco, CA","h":"Rincon Hill","y":37.786381,"x":-122.395368,"u":"https://dragoneats-folsom-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Dumpling Dough","a":"1195 Laurel St, San Carlos, CA","h":"San Carlos","y":37.499049,"x":-122.251984,"u":"https://dumpling-dough-san-carlos.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Easy Money","a":"2312 Irving Street, San Francisco, CA","h":"Outer Sunset","y":37.763503,"x":-122.482884,"u":"https://easymoney-sanfrancisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"El Gran Amigo 2","a":"1357 Linda Mar Shopping Center, Pacifica, CALIFORNIA","h":"Pacifica","y":37.593531,"x":-122.504358,"u":"https://el-gran-amigo-2-pacifica.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"El Metate Con Sabor A Mexico","a":"2406 Bryant St, San Francisco, CA","h":"Mission","y":37.755769,"x":-122.409628,"u":"https://el-metate-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"El Rincon de Jorgito","a":"1850 Cesar Chavez St, San Francisco, CA","h":"Potrero Hill","y":37.750026,"x":-122.39602,"u":"https://el-rincon-de-jorgito-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Ember Grill","a":"670 Larkin St","h":"Tenderloin","y":37.78401,"x":-122.41767,"u":"https://ember-grill-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Ensenada Restaurant","a":"4448 Mission Street, San Francisco, CA","h":"Mission Terrace","y":37.726576,"x":-122.43376,"u":"https://ensenada-restaurant-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Eyebrow Queen Salon Inc San Francisco","a":"3196 24th Street, San Francisco, CALIFORNIA","h":"Mission","y":37.752511,"x":-122.416045,"u":"https://eyebrow-queen-salon-inc-san-francisco-san-francisco.cloveronline.com","c":"Beauty & Wellness","s":0,"st":"ok","p":"yes","w":[]},{"n":"Fondue Chinoise","a":"430 Broadway, San Francisco, CA","h":"North Beach","y":37.798436,"x":-122.404545,"u":"https://fondue-chinoise-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"dead","p":"unchecked","w":[]},{"n":"Food Basket Market","a":"475 Fell Street, San Francisco, CA","h":"Hayes Valley","y":37.775441,"x":-122.425899,"u":"https://food-basket-market-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Friends Liquor","a":"1758 Fillmore Street, San Francisco, CA","h":"Japantown","y":37.78601,"x":-122.433022,"u":"https://friends-liquor-san-francisco.cloveronline.com","c":"Retail & Services","s":0,"st":"ok","p":"yes","w":[]},{"n":"Fuji Sukiyaki Inc","a":"428 E 3rd Avenue, San Mateo, CA","h":"San Mateo","y":37.5664,"x":-122.320823,"u":"https://fuji-sukiyaki-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Godzila Sushi","a":"1800 Divisadero St, San Francisco, CA","h":"Lower Pacific Heights","y":37.786351,"x":-122.439977,"u":"https://godzila-sushi-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Guadalajar Grill","a":"19 Laurie Meadows Dr, San Mateo, CA","h":"San Mateo","y":37.531057,"x":-122.287397,"u":"https://guadalajar-grill-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Guadalajar Grill 2","a":"390 El Camino Real, Belmont, CALIFORNIA","h":"Belmont","y":37.52671,"x":-122.284706,"u":"https://guadalajar-grill-2-belmont.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Ha Mini Mart","a":"803 Grant Avenue, San Francisco, CA","h":"Chinatown","y":37.794416,"x":-122.406524,"u":"https://ha-mini-mart-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Halal Burgers #3","a":"22 6th St, San Francisco, CA","h":"South of Market","y":37.781811,"x":-122.410002,"u":"https://halal-burgers-3-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Hawthorn Sf","a":"46 Geary Street, San Francisco, CA","h":"Downtown / Union Square","y":37.787992,"x":-122.404294,"u":"https://hawthorn-lounge-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Hem By LeQuy","a":"1050 Valencia Street, San Francisco, CA","h":"Dolores Heights","y":37.755944,"x":-122.421318,"u":"https://hem-by-lequy-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Himalayan Hub","a":"508 Valencia Street, San Francisco, CALIFORNIA","h":"Mission Dolores","y":37.764649,"x":-122.422021,"u":"https://himalayan-hub-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"HiroNori San Mateo","a":"211 East 3rd Avenue, San Mateo, CALIFORNIA","h":"San Mateo","y":37.565263,"x":-122.323008,"u":"https://hironori-san-mateo-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"House Of Bagels","a":"5030 Geary Blvd, San Francisco, CA","h":"Inner Richmond","y":37.780865,"x":-122.473514,"u":"https://house-of-bagels-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Icicles Cream Roll Chandler","a":"98 East 3rd Avenue, San Mateo, CA","h":"San Mateo","y":37.564134,"x":-122.324147,"u":"https://liuyishou-hotpot-san-mateo-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"IL Canto Cafe","a":"475 Sacramento St","h":"Financial District","y":37.794058,"x":-122.400686,"u":"https://il-canto-cafe-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Izakaya Sozai","a":"1500 Irving Street, San Francisco, CA","h":"Inner Sunset","y":37.763847,"x":-122.474121,"u":"https://izakaya-sozai-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Izakaya Yoki","a":"900 Bush St #c101, San Francisco, CA","h":"Lower Nob Hill","y":37.789895,"x":-122.4123,"u":"https://izakaya-yoki-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Java on Ocean","a":"1700 Ocean Ave, San Francisco, CA","h":"Westwood Park","y":37.724929,"x":-122.460098,"u":"https://java-on-ocean-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Jims By MLVS","a":"2420 Mission St, San Francisco, CA","h":"Mission","y":37.758267,"x":-122.419358,"u":"https://jims-by-mlvs.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Joe's Ice Cream","a":"5420 Geary Blvd","h":"Inner Richmond","y":37.780645,"x":-122.477758,"u":"https://joes-ice-cream-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Judahlicious","a":"3906 Judah St","h":"Outer Sunset","y":37.760647,"x":-122.50398,"u":"https://judahlicious-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"K. Minamoto San Francisco","a":"648 Market St, San Francisco, CA","h":"Downtown / Union Square","y":37.78849,"x":-122.402732,"u":"https://k-minamoto-san-francisco-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Kava Indian Cuisine","a":"2151 Lombard Street, San Francisco, CALIFORNIA","h":"Union Street","y":37.799512,"x":-122.436837,"u":"https://kava-indian-cuisine-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Keiths Chicken N Waffles","a":"270 San Pedro Rd, Daly City, CA","h":"Daly City","y":37.686946,"x":-122.469597,"u":"https://keiths-chicken-n-waffles-daly-city.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Kenny's Cafe","a":"640 Crespi Dr, Pacifica, CA","h":"Pacifica","y":37.596965,"x":-122.497801,"u":"https://kennys-cafe-pacifica.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"L&L Hwn BBQ - Eg","a":"7419 Laguna Blvd #120, Elk Grove, CA","h":"Elk Grove","y":38.424392,"x":-121.417232,"u":"https://ll-hawaiian-barbecue-millbrae.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":["location unconfirmed"]},{"n":"La Oaxaquena","a":"2128 Mission St","h":"Mission","y":37.762911,"x":-122.419671,"u":"https://la-oaxaquena-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"La Travesia","a":"1022 Bush St","h":"Lower Nob Hill","y":37.789721,"x":-122.41423,"u":"https://la-travesia-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Las Mestizas","a":"2280 Chestnut Street, San Francisco, CA","h":"Marina","y":37.800402,"x":-122.440889,"u":"https://las-mestizas-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Lelenitas Cakes","a":"3743 Mission St, San Francisco, CA","h":"Holly Park","y":37.736568,"x":-122.423875,"u":"https://lelenitas-cakes-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Little Delhi","a":"83 Eddy St, San Francisco, CA","h":"Downtown / Union Square","y":37.784257,"x":-122.409013,"u":"https://little-delhi-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Little Lucca - Ssf","a":"724 El Camino Real, South San Francisco, CA","h":"South San Francisco","y":37.650884,"x":-122.430642,"u":"https://little-lucca-ssf-south-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Lorenzo's Sandwich Shop","a":"911 Villa Ave, Belmont, CA","h":"Belmont","y":37.512769,"x":-122.293375,"u":"https://lorenzos-sandwich-shop-belmont.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Los Hermanos Mex Rest","a":"2026 Chestnut Street, San Francisco, CALIFORNIA","h":"Marina","y":37.800915,"x":-122.437,"u":"https://loshermanosmexicansf.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Los Yaquis Folsom","a":"3214 Folsom Street, San Francisco, CA","h":"Bernal Heights","y":37.746905,"x":-122.413782,"u":"https://los-yaquis-folsom-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Luisa Restaurant Inc","a":"759 Columbus Ave, San Francisco, CA","h":"Russian Hill","y":37.801643,"x":-122.412371,"u":"https://luisa-restaurant-inc-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Luisa's on Guerrero Inc.","a":"1001 Guerrero St, San Francisco, CA","h":"Dolores Heights","y":37.754964,"x":-122.422968,"u":"https://luisas-on-guerrero-inc-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Madam Zola's Fortune - The Midway","a":"900 Marin St, San Francisco, CA","h":"Central Waterfront","y":37.749277,"x":-122.385694,"u":"https://midway-catering-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"dead","p":"unchecked","w":[]},{"n":"Marina Pizza & Pasta","a":"2139 Lombard Street, San Francisco, CA","h":"Union Street","y":37.799502,"x":-122.436676,"u":"https://marina-pizza-pasta-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Martha & Bros Coffee.","a":"3868 24th Street, San Francisco, CA","h":"Noe Valley","y":37.751786,"x":-122.429007,"u":"https://martha-bros-coffee-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Mazzetti's Bakery","a":"101 Manor Drive, Pacifica, CALIFORNIA","h":"Pacifica","y":37.649389,"x":-122.490423,"u":"https://mazzettis.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Mellis Cafe","a":"414 Sutter St, Sf, CA","h":"Downtown / Union Square","y":37.789503,"x":-122.40741,"u":"https://melliscafe.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Mellis Cafe","a":"154 Ellis St","h":"Downtown / Union Square","y":37.785235,"x":-122.408899,"u":"https://mellis-cafe-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Memphis Minnie's BBQ","a":"576haight Street, San Francisco, CA","h":"Buena Vista","y":37.771718,"x":-122.443893,"u":"https://memphis-minnies-bbq-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Metropolitan Coffee","a":"720 Market Street, San Francisco, CA","h":"Downtown / Union Square","y":37.787542,"x":-122.404071,"u":"https://metropolitan-coffee-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Mi Yucatan","a":"2845 Mission St","h":"Mission","y":37.751505,"x":-122.418373,"u":"https://mi-yucatan-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Michaelis Wine&Spirits","a":"2198 Union Street, San Francisco, CA","h":"Union Street","y":37.797282,"x":-122.435377,"u":"https://michaelis-wine-sprit-san-francisco.cloveronline.com","c":"Retail & Services","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Mission Street Oyster Bar","a":"2282 Mission St","h":"Mission","y":37.76058,"x":-122.419439,"u":"https://the-mission-street-oyster-bar-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Modernist Club","a":"139 Steuart Street, San Francisco, CA","h":"Financial District","y":37.792908,"x":-122.392392,"u":"https://modernist-club-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Momo & Curry Nepal","a":"435 Broadway, Millbrae, CA","h":"Millbrae","y":37.601765,"x":-122.393321,"u":"https://momocurrynepal-millbrae.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Moonraker Mobile","a":"105 Rockaway Beach Ave, Pacifica, CA","h":"Pacifica","y":37.609669,"x":-122.496362,"u":"https://moonraker-pacifica.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Moonraker Mobile","a":"1379 4th St, San Francisco, CA","h":"Mission Bay","y":37.770895,"x":-122.3903,"u":"https://moonraker-mobile-parklabsf.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"My Breakfast House","a":"1137 Laurel St, San Carlos, CA","h":"San Carlos","y":37.499717,"x":-122.252738,"u":"https://my-breakfast-house-san-carlos.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"New Broadway Bistro","a":"349 Broadway, Millbrae, CA","h":"Millbrae","y":37.601066,"x":-122.392436,"u":"https://new-broadway-bistro-millbrae.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"New Burma","a":"659 Townsend Street, San Francisco, CA","h":"Showplace Square","y":37.770648,"x":-122.402769,"u":"https://burma-grub-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"New Eritrea Restaurant & Bar","a":"907 Irving St","h":"Inner Sunset","y":37.763815,"x":-122.467695,"u":"https://new-eritrea-restaurant-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"NG's Cooking","a":"2268 Westborough Bl #303, South San Francisc, CA","h":"South San Francisco","y":37.645294,"x":-122.451987,"u":"https://ngs-cooking-south-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Nunu\u2019s Cafe","a":"1724 Mandela Pkwy, Oakland, CA","h":"Oakland","y":37.813389,"x":-122.290087,"u":"https://nunus-cafe-oakland.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["location unconfirmed"]},{"n":"Osakaya Restaurant","a":"1737 Post St #370, San Francisco, CA","h":"Japantown","y":37.785329,"x":-122.430369,"u":"https://osakaya-restaurant-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Paik's Noodle San Carlos","a":"39 El Camino Real, San Carlos, CA","h":"San Carlos","y":37.512822,"x":-122.266194,"u":"https://paiks-noodle-san-carlos.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Panj-Aab Indian Cuisine","a":"330 Palmetto Ave Ste D, Pacifica, CA","h":"Pacifica","y":37.651715,"x":-122.490954,"u":"https://pacific-indian-cuisine-pacifica.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Pengu Juice Co.","a":"3605 Market Street #13, Riverside, CA","h":"Eureka Valley","y":37.756077,"x":-122.440794,"u":"https://pengu-juice-co-riverside.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["location unconfirmed"]},{"n":"Picaro","a":"3120 16th St","h":"Mission Dolores","y":37.765053,"x":-122.422474,"u":"https://picaro-cafe-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Ping Yang Thai","a":"955 Larkin St, San Francisco, CA","h":"Lower Nob Hill","y":37.786875,"x":-122.418521,"u":"https://pingyangsf.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Poke Bowl(Kearny)","a":"33 Kearny St, San Francisco, CA","h":"Downtown / Union Square","y":37.788347,"x":-122.403721,"u":"https://poke-bowls-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"dead","p":"unchecked","w":[]},{"n":"Prado Flowers","a":"2072 Union Street, San Francisco, CA","h":"Union Street","y":37.797556,"x":-122.433519,"u":"https://prado-flowers-san-francisco.cloveronline.com","c":"Retail & Services","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Puerto Alegre","a":"546 Valencia St","h":"Mission Dolores","y":37.764152,"x":-122.421977,"u":"https://puerto-alegre-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Quickly","a":"175 Southgate Avenue, Daly City, CA","h":"Daly City","y":37.69722,"x":-122.483718,"u":"https://quickly-daly-city.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Quickly At Westborough","a":"2288 Westborough Bouleva, South San Francisco, CA","h":"South San Francisco","y":37.644364,"x":-122.453227,"u":"https://quickly.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Ramen Yamadaya Sf","a":"1728 Buchanan St 2nd Fl, San Francisco, CA","h":"Japantown","y":37.786061,"x":-122.429759,"u":"https://ramen-yamadaya-sf-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Rasoi Restaurant","a":"1425 Burlingame Avenue, Burlingame, CA","h":"Burlingame","y":37.577187,"x":-122.348591,"u":"https://rasoi-restaurant-burlingame.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Redwood Cafe","a":"2750 Adeline Dr, Burlingame, CA","h":"Burlingame","y":37.582898,"x":-122.383082,"u":"https://redwood-cafe-burlingame.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Redwood Cafe","a":"2750 Burlingame Dr, Burlingame, CA","h":"Burlingame","y":37.574819,"x":-122.351275,"u":"https://redwood-cafe-burlingame-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Restaurant el Pastorsito","a":"4780 Mission Street, San Francisco, CALIFORNIA","h":"Cayuga","y":37.721757,"x":-122.43728,"u":"https://restaurant-el-pastorsito-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"RISTORANTE BUON GUSTO","a":"224 Grand Ave, South San Francisco, CA","h":"South San Francisco","y":37.655245,"x":-122.408921,"u":"https://ristorante-buon-gusto-south-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"dead","p":"unchecked","w":[]},{"n":"Rockridge","a":"525 Cortland Avenue, San Francisco, CA","h":"Bernal Heights","y":37.739236,"x":-122.416044,"u":"https://united-dumplings-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Saffron Grill","a":"1279 Fulton St, San Francisco, CA","h":"Alamo Square","y":37.776779,"x":-122.437912,"u":"https://saffron-grill-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Salty's","a":"748 Van Ness Ave, San Francisco, CA","h":"Tenderloin","y":37.782412,"x":-122.420498,"u":"https://saltys-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Samikcha Momo","a":"146 East 3rd Avenue, San Mateo, CA","h":"San Mateo","y":37.564439,"x":-122.323539,"u":"https://samikcha-momo-san-mateo-2.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Scopo Divino","a":"2800 California Street, San Francisco, CA","h":"Pacific Heights","y":37.788228,"x":-122.440683,"u":"https://scopo-divino-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Sewa Indian and Nepalese","a":"815 Clement Street, San Francisco, CA","h":"Inner Richmond","y":37.782579,"x":-122.46802,"u":"https://sewa-indian-and-nepalese-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Sf Grill Restaurant","a":"799 Valencia Street, San Francisco, CA","h":"Mission","y":37.759973,"x":-122.421168,"u":"https://sf-grill-restaurant-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"SF OrganiCA","a":"500 Larkin St","h":"Tenderloin","y":37.782593,"x":-122.41726,"u":"https://sf-organica-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Skywalker Ranch","a":"5858 Lucas Valley Road, Nicasio, CA","h":"Nicasio","y":38.05636,"x":-122.655762,"u":"https://skywalker-ranch-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["location unconfirmed"]},{"n":"Slider Buns","a":"1202 Sutter St, San Francisco, CA","h":"Lower Nob Hill","y":37.787879,"x":-122.420362,"u":"https://slider-buns-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Sofiya","a":"1098 Sutter St","h":"Lower Nob Hill","y":37.788102,"x":-122.418371,"u":"https://restaurant-sofiya-sf.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Sofra Grill","a":"132 Hazelwood Dr, South San Francisc, CA","h":"South San Francisco","y":37.642234,"x":-122.426379,"u":"https://sofra-grill-south-san-francisc.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Soltrans Vallejo Transit Center Ticket Office","a":"311 Sacramento St, Vallejo, CA","h":"Financial District","y":37.794106,"x":-122.399342,"u":"https://soltrans-vallejo-transit-center-ticket-office-vallejo.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["location unconfirmed"]},{"n":"Soul Blends Coffee","a":"3207 Louise St, Oakland, CA","h":"Oakland","y":37.82404,"x":-122.284815,"u":"https://blendandbloomcafeoak.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":["location unconfirmed"]},{"n":"SOY GRILL TERIYAKI","a":"9738 Sf Washington St #w, Portland, OR","h":"South of Market","y":37.774929,"x":-122.419415,"u":"https://soy-grill-teriyaki-portland.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["location unconfirmed"]},{"n":"Spill the Tea & BBQ Sc","a":"765 Old County Road #b, San Carlos, CA","h":"San Carlos","y":37.505706,"x":-122.256837,"u":"https://spill-the-tea-bbq-sc-san-carlos.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Sugar Lounge Sf","a":"377 Hayes St, San Francisco, CA","h":"Civic Center","y":37.776827,"x":-122.422541,"u":"https://sugar-lounge-sf-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Sukh Veg & Vegan Food","a":"2475 Siesta Lane, Oakland, CA","h":"Oakland","y":37.753399,"x":-122.161416,"u":"https://sukh-veg-vegan-food-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["location unconfirmed"]},{"n":"Sunset Pizza","a":"2245 Judah Street, San Francisco, CALIFORNIA","h":"Outer Sunset","y":37.761119,"x":-122.486317,"u":"https://sunset-pizza-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Sushi Time","a":"2275 Market St, San Francisco, CA","h":"Castro","y":37.76456,"x":-122.432015,"u":"https://sushi-time-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Sutter Health Popupstore","a":"2300 California St #101, San Francisco, CA","h":"Pacific Heights","y":37.789465,"x":-122.432469,"u":"https://sutter-health-powerofone.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Tacos el Patron Sf","a":"1500 S Van Ness Avenue, San Francisco, CA","h":"Mission","y":37.748949,"x":-122.416157,"u":"https://tacos-el-patron-sf-san-francisco-3.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"TACOS EL PATRON SF.","a":"1500 Van Ness Avenue #10, San Francisco, CA","h":"Lower Nob Hill","y":37.789384,"x":-122.420205,"u":"https://tacos-el-patron-sf-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"dead","p":"unchecked","w":[]},{"n":"Tacos Las Espadas","a":"2151 Market Street, Redding, CA","h":"Mission Dolores","y":37.766623,"x":-122.429975,"u":"https://tacos-las-espadas.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["location unconfirmed"]},{"n":"Taj Indian Cuisine","a":"5701 Geary Blvd, San Francisco, CA","h":"Outer Richmond","y":37.780052,"x":-122.48062,"u":"https://taj-indian-cuisine-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Tamari Authentic","a":"1152 San Carlos Ave, San Carlos, CA","h":"San Carlos","y":37.507004,"x":-122.261013,"u":"https://tamari-authentic-san-carlos.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Tang Bar SF","a":"3251 20th Ave Ste 218, San Francisco, CA","h":"Stonestown","y":37.72773,"x":-122.476975,"u":"https://tang-bar-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Tanglad","a":"469 Castro St San Francisco, CA 94114 United States","h":"Castro","y":37.761411,"x":-122.43489,"u":"https://tanglad-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Taqueria el Gran Amigo.","a":"72 B Serremonte Center, Daly City, CA","h":"Daly City","y":37.671767,"x":-122.472138,"u":"https://taqueria-el-gran-amigo-daly-city.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Taqueria las Pencas #1","a":"319 Baden Ave, South San Francisc, CA","h":"South San Francisco","y":37.65417,"x":-122.411398,"u":"https://taqueria-las-pencas-south-san-francisc.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Taqueria Leon","a":"551 San Mateo Avenue, San Bruno, CALIFORNIA","h":"San Bruno","y":37.625286,"x":-122.411575,"u":"https://taqueria-leon-san-bruno.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"TAQUERIA MARGARITA","a":"493 Pine Street, San Francisco, CA","h":"Financial District","y":37.791522,"x":-122.40389,"u":"https://taqueria-margarita-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"dead","p":"unchecked","w":[]},{"n":"Taqueria Mayas","a":"2700 Broadway, Sacramento, CA","h":"Pacific Heights","y":37.793643,"x":-122.441786,"u":"https://taqueria-mayas-sacramento.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":["location unconfirmed"]},{"n":"Taqueria Mi Durango","a":"287 El Camino Real","h":"San Bruno","y":37.619707,"x":-122.410564,"u":"https://taqueria-mi-durango-san-bruno.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Taqueria Mi Durango II","a":"671 El Camino Real, S San Fran, CA","h":"South San Francisco","y":37.355081,"x":-121.941049,"u":"https://taqueria-mi-durango-ii-s-san-francis.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"TAQUERIA SAN JOSE","a":"2839 Mission Street","h":"Mission","y":37.751592,"x":-122.418233,"u":"https://taqueria-san-jose-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":["address approximate"]},{"n":"Ted's Deli Inc","a":"1530 Howard St, San Francisco, CA","h":"South of Market","y":37.772877,"x":-122.416257,"u":"https://teds-deli-inc-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"The Buoy","a":"22 Franklin Street, San Francisco, CA","h":"Civic Center","y":37.774617,"x":-122.420528,"u":"https://buoy-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"dead","p":"unchecked","w":[]},{"n":"The City Taqueria","a":"1836 Divisadero Street, San Francisco, CALIFORNIA","h":"Lower Pacific Heights","y":37.786739,"x":-122.43989,"u":"https://the-city-taqueria-san-francisco-2.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"The City Taqueria 2","a":"3401 Mission St, San Francisco, CA","h":"Bernal Heights","y":37.742008,"x":-122.421928,"u":"https://the-city-taqueria-2-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"The Front Porch","a":"65 29th Street","h":"Bernal Heights","y":37.743806,"x":-122.422017,"u":"https://the-front-porch-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"The Korner Store Bites & Vibes","a":"4516 Mission St, San Francisco, CA","h":"Mission Dolores","y":37.761058,"x":-122.422028,"u":"https://tks-bites-vibes-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"The Original Kadoks","a":"6899 Mission St, Daly City, CA","h":"Daly City","y":37.696983,"x":-122.462767,"u":"https://kadoks-daly-city-daly-city.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"The Ravioli House","a":"505 Sb St, San Mateo, CA","h":"San Mateo","y":37.564139,"x":-122.320429,"u":"https://the-ravioli-house-san-mateo.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Tiffany's Cafe","a":"3801 3rd Street #535, San Francisco, CA","h":"Bayview","y":37.74195,"x":-122.387353,"u":"https://tiffanys-cafe-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Tikal Restaurante Y Pan","a":"5099 Mission Street, San Francisco, CA","h":"Excelsior","y":37.717297,"x":-122.440155,"u":"https://tikal-restaurante-y-pan-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Tiny Sushi - Oh Baby","a":"32 Park Plaza Drive, Daly City, CA","h":"Daly City","y":37.701284,"x":-122.481983,"u":"https://tiny-sushi-oh-baby-daly-city.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Toot Sweet FrozenYogurt.","a":"1148 San Carols Ave, San Carlos, CA","h":"San Carlos","y":37.507054,"x":-122.261042,"u":"https://tutti-frutti-san-carlos.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Trisara Restaurant","a":"211 Kearny St","h":"Downtown / Union Square","y":37.79011,"x":-122.403728,"u":"https://trisara-restaurant-sanfrancisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Two Cousins Deli","a":"1331 Old County Rd","h":"Belmont","y":37.51879,"x":-122.27169,"u":"https://two-cousins-deli.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Unimart","a":"1201 Howard Street, San Francisco, CA","h":"South of Market","y":37.775779,"x":-122.411548,"u":"https://unimart-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Union Square Pizza & Kit","a":"284 O'farrell Street, San Francisco, CA","h":"Downtown / Union Square","y":37.786388,"x":-122.4095,"u":"https://union-square-pizza-kit-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Urbancurry","a":"1298 Market St, San Francisco, CA","h":"Civic Center","y":37.777879,"x":-122.416334,"u":"https://sangamstar-food-inc-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Van Ness Cafe & Gyros","a":"826 Van Ness Avenue, San Francisco, CA","h":"Tenderloin","y":37.783322,"x":-122.420602,"u":"https://van-ness-cafe-gyros-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Vcaicero Investment","a":"437a Grand Ave, S San Fran, CA","h":"South San Francisco","y":37.655727,"x":-122.414089,"u":"https://antigua-coffee-shop-llc-ssf-s-san-fran.cloveronline.com","c":"restaurants","s":0,"st":"dead","p":"unchecked","w":[]},{"n":"Vega Pizzeria","a":"419 Cortland Avenue, San Francisco, CA","h":"Bernal Heights","y":37.739323,"x":-122.41746,"u":"https://vega-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Xiloa Cafe","a":"7370 Mission Street, Daly City, CA","h":"Daly City","y":37.690354,"x":-122.466063,"u":"https://cafe-xiloa-daly-city.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]},{"n":"Ya-Ua Boba","a":"1090 Alameda De Las Pulg, Belmont, CA","h":"Belmont","y":37.523095,"x":-122.301794,"u":"https://yaua-boba-belmont.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Yarsa Nepalese Cuisine","a":"1310 Grant Ave","h":"North Beach","y":37.799025,"x":-122.407219,"u":"https://yarsa-nepalese-cuisine-san-francisco.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Yonkers Cafe","a":"3815 Noriega St","h":"Outer Sunset","y":37.752833,"x":-122.504694,"u":"https://yonkers-cafe-sf.cloveronline.com","c":"restaurants","s":0,"st":"ok","p":"yes","w":[]},{"n":"Yoshi Ramen & Sushi","a":"127h Serramonte Ctr, Daly City, CA","h":"Daly City","y":37.671053,"x":-122.470365,"u":"https://yoshi-ramen-sushi-daly-city.cloveronline.com","c":"restaurants","s":0,"st":"disabled","p":"yes","w":[]}];
+
+const PROMO_END = "2026-09-10";
+const SF = [37.7749, -122.4194];
+
+/* ---------- header ---------- */
+(function(){
+  const end = new Date(PROMO_END + "T23:59:59");
+  const days = Math.max(0, Math.ceil((end - new Date()) / 86400000));
+  document.getElementById('days').textContent =
+    days === 0 ? "promo ended" : days + "d left";
+  const per = REDEMPTIONS.maxPerCard || 10, cards = REDEMPTIONS.cards || {};
+  let used = 0, total = 0;
+  for (const k in cards){ used += (cards[k]||[]).length; total += per; }
+  document.getElementById('credits').textContent =
+    Math.max(0, total - used) + "/" + total + " left";
+})();
+
+/* ---------- map ---------- */
+const map = L.map('map', {zoomControl:false, attributionControl:true})
+             .setView(SF, 12.5);
+
+const light = L.tileLayer(
+  'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+  {maxZoom:20, subdomains:'abcd', attribution:'&copy; OSM &copy; CARTO'});
+const dark = L.tileLayer(
+  'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png',
+  {maxZoom:20, subdomains:'abcd', attribution:'&copy; OSM &copy; CARTO'});
+
+const mq = window.matchMedia('(prefers-color-scheme: dark)');
+let base = (mq.matches ? dark : light).addTo(map);
+mq.addEventListener('change', e => {
+  map.removeLayer(base);
+  base = (e.matches ? dark : light).addTo(map);
+});
+
+function cls(m){
+  return 'pin' + (m.s ? ' s' : '') + (m.st==='dead' ? ' dead'
+       : m.st==='disabled' ? ' off' : '');
+}
+function icon(m){
+  const sz = m.s ? 32 : 21;
+  return L.divIcon({className:'', html:'<div class="'+cls(m)+'"><b></b></div>',
+                    iconSize:[sz,sz], iconAnchor:[sz/2,sz/2], popupAnchor:[0,-sz/2]});
+}
+
+const markers = M.map((m,i) => {
+  m._i = i;
+  const mk = L.marker([m.y,m.x], {icon:icon(m), zIndexOffset: m.s ? 1000 : 0});
+  mk.bindPopup(() => popup(m), {maxWidth:265, closeButton:false});
+  mk.addTo(map);
+  return mk;
+});
+
+function popup(m){
+  const d = here ? ' &middot; ' + fmt(dist(here,m)) : '';
+  const bad = m.st === 'dead';
+  return '<div class="pop"><h3>' + (m.s?'&#9733; ':'') + esc(m.n) + '</h3>'
+    + '<div class="pm">' + esc(m.h) + d + (m.a ? '<br>' + esc(m.a) : '')
+    + (bad ? '<br><b style="color:#e5484d">ordering page is gone</b>' : '')
+    + (m.st==='disabled' ? '<br><b style="color:#f79009">online ordering switched off</b>' : '')
+    + (m.w && m.w.length ? '<br>' + esc(m.w.join(' · ')) : '')
+    + '</div><a class="' + (bad?'off':'') + '" href="' + esc(m.u)
+    + '" target="_blank" rel="noopener">' + (bad?'unavailable':'Order &rarr;') + '</a></div>';
+}
+
+/* ---------- geolocation ---------- */
+let here = null, meMk = null, meRing = null;
+function toast(t){
+  const el = document.getElementById('toast');
+  el.textContent = t; el.classList.add('on');
+  setTimeout(()=>el.classList.remove('on'), 3000);
+}
+function setHere(lat, lon, acc){
+  here = [lat, lon];
+  if (meMk){ map.removeLayer(meMk); map.removeLayer(meRing); }
+  meRing = L.circle(here, {radius:Math.min(acc||60,400), color:'#2f6bff', weight:1,
+                           fillColor:'#2f6bff', fillOpacity:.10}).addTo(map);
+  meMk = L.marker(here, {icon:L.divIcon({className:'', html:'<div class="me"></div>',
+        iconSize:[18,18], iconAnchor:[9,9]}), zIndexOffset:2000}).addTo(map);
+  render();
+}
+function locate(pan){
+  if (!isSecureContext) { toast('needs https for location'); return; }
+  if (!navigator.geolocation){ toast('geolocation unavailable'); return; }
+  navigator.geolocation.getCurrentPosition(
+    p => { setHere(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+           if (pan) map.setView(here, 15); },
+    e => toast(e.code===1 ? 'location declined — showing SF' : 'location unavailable — showing SF'),
+    {enableHighAccuracy:true, timeout:10000, maximumAge:60000});
+}
+document.getElementById('loc').addEventListener('click', ()=>locate(true));
+
+/* ---------- helpers ---------- */
+function dist(a,m){
+  const R=6371,t=Math.PI/180, dLat=(m.y-a[0])*t, dLon=(m.x-a[1])*t;
+  const s=Math.sin(dLat/2)**2+Math.cos(a[0]*t)*Math.cos(m.y*t)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+function fmt(km){ const mi=km*0.621371;
+  return mi<0.19 ? Math.round(mi*5280)+' ft' : mi.toFixed(mi<10?1:0)+' mi'; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------- sheet ---------- */
+const sheet = document.getElementById('sheet');
+const grab  = document.getElementById('grab');
+const locBtn= document.getElementById('loc');
+let open=false;
+function setOpen(v){
+  open=v; sheet.classList.toggle('open',v); locBtn.classList.toggle('up',v);
+}
+grab.addEventListener('click', ()=>setOpen(!open));
+
+let sy=0, sTrans=0, dragging=false;
+function onDown(e){
+  dragging=true; sy=(e.touches?e.touches[0].clientY:e.clientY);
+  sTrans = sheet.getBoundingClientRect().top;
+  sheet.classList.add('drag');
+}
+function onMove(e){
+  if(!dragging) return;
+  const y=(e.touches?e.touches[0].clientY:e.clientY);
+  const h=sheet.offsetHeight, peek=132;
+  let off = Math.min(Math.max(0, (sTrans - (window.innerHeight-h)) + (y-sy)), h-peek);
+  sheet.style.transform='translateY('+off+'px)';
+  e.preventDefault();
+}
+function onUp(){
+  if(!dragging) return;
+  dragging=false; sheet.classList.remove('drag'); sheet.style.transform='';
+  const h=sheet.offsetHeight, top=sheet.getBoundingClientRect().top;
+  setOpen(top < window.innerHeight - h*0.55);
+}
+grab.addEventListener('touchstart',onDown,{passive:true});
+grab.addEventListener('touchmove',onMove,{passive:false});
+grab.addEventListener('touchend',onUp);
+grab.addEventListener('mousedown',onDown);
+window.addEventListener('mousemove',onMove);
+window.addEventListener('mouseup',onUp);
+
+/* ---------- list ---------- */
+let mode='all';
+const listEl=document.getElementById('list'), qEl=document.getElementById('q');
+const COLOR={dead:'var(--dead)',disabled:'var(--warn)'};
+
+function render(){
+  const q=qEl.value.trim().toLowerCase();
+  let rows=M.filter(m=>{
+    if(mode==='star'&&!m.s) return false;
+    if(mode==='open'&&m.st!=='ok') return false;
+    if(q && !(m.n.toLowerCase().includes(q)||(m.h||'').toLowerCase().includes(q)
+             ||(m.a||'').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  const set=new Set(rows);
+  if(here) rows.forEach(m=>m._d=dist(here,m));
+  rows.sort((a,b)=> here ? a._d-b._d : (b.s-a.s)||a.n.localeCompare(b.n));
+
+  markers.forEach((mk,i)=>{
+    const on=set.has(M[i]);
+    if(on && !map.hasLayer(mk)) mk.addTo(map);
+    if(!on && map.hasLayer(mk)) map.removeLayer(mk);
+  });
+
+  document.getElementById('count').innerHTML =
+    rows.length + ' place' + (rows.length===1?'':'s') +
+    (here ? ' <em>&middot; nearest first</em>' : ' <em>&middot; pull up for list</em>');
+
+  if(!rows.length){ listEl.innerHTML='<div class="empty">nothing matches</div>'; return; }
+  listEl.innerHTML = rows.map(m=>{
+    const pill = m.st==='dead' ? '<span class="pill dead">GONE</span>'
+               : m.st==='disabled' ? '<span class="pill off">OFF</span>' : '';
+    const col = COLOR[m.st] || (m.s ? 'var(--star)' : 'var(--accent)');
+    return '<div class="item" data-i="'+m._i+'">'
+      + '<span class="dot" style="background:'+col+'"></span>'
+      + '<div class="body"><div class="nm"><span class="t">'
+      + (m.s?'&#9733; ':'') + esc(m.n) + '</span>' + pill + '</div>'
+      + '<div class="meta">' + esc(m.h) + (m.a?' &middot; '+esc(m.a):'') + '</div></div>'
+      + '<div class="dist">' + (here?fmt(m._d):'') + '</div></div>';
+  }).join('');
+}
+
+listEl.addEventListener('click', e=>{
+  const it=e.target.closest('.item'); if(!it) return;
+  const m=M[+it.dataset.i];
+  setOpen(false);
+  setTimeout(()=>{ map.setView([m.y,m.x], Math.max(map.getZoom(),16));
+                   markers[m._i].openPopup(); }, 260);
+});
+qEl.addEventListener('input', render);
+function seg(id,val){ document.getElementById(id).addEventListener('click',()=>{
+  mode=val; ['bAll','bStar','bOpen'].forEach(b=>
+    document.getElementById(b).setAttribute('aria-pressed',String(b===id)));
+  render(); }); }
+seg('bAll','all'); seg('bStar','star'); seg('bOpen','open');
+
+render();
+locate(false);
+</script>
+</body>
+</html>
