@@ -5,128 +5,135 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#101216">
 <title>Paze Map</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.92em%22 font-size=%2292%22>&#127790;</text></svg>">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
   :root{
     --ink:#12141a; --muted:#6b7280; --line:#e6e8ee; --card:#fff; --bg:#f4f5f8;
-    --star:#f0a500; --ok:#12b76a; --dead:#e5484d; --warn:#f79009; --accent:#2f6bff;
+    --star:#f0a500;                 /* starred merchants */
+    --pin:#0d9488;                  /* normal merchants (teal, NOT the you-blue) */
+    --me:#2f6bff;                   /* you-are-here only */
+    --dead:#e5484d; --warn:#f79009; --ok:#12b76a;
     --sb: env(safe-area-inset-bottom, 0px);
     --st: env(safe-area-inset-top, 0px);
-    --sheet-peek: 132px;
+    --peek: 150px;
+    --sheet-h: 82vh;
   }
   @media (prefers-color-scheme: dark){
     :root{ --ink:#eceef4; --muted:#98a0b3; --line:#2a2e3a; --card:#181b22; --bg:#0e1014; }
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none}
-  body{
-    background:var(--bg); color:var(--ink);
-    font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  }
+  body{background:var(--bg);color:var(--ink);
+       font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 
-  /* ---------- full-bleed map ---------- */
   #map{position:fixed;inset:0;z-index:0;background:var(--bg)}
 
-  /* ---------- floating top bar ---------- */
-  .top{
-    position:fixed;z-index:500;left:10px;right:10px;top:calc(10px + var(--st));
-    display:flex;gap:8px;align-items:center;pointer-events:none;
-  }
-  .chip{
-    pointer-events:auto;background:var(--card);border:1px solid var(--line);
-    border-radius:999px;padding:8px 13px;font-size:12.5px;font-weight:650;
-    box-shadow:0 4px 18px rgba(10,15,30,.14);white-space:nowrap;
-  }
-  .chip .n{color:var(--ok)}
-  .chip .d{color:var(--warn)}
-  .grow{flex:1 1 auto}
+  /* ---------- floating chips ---------- */
+  .top{position:fixed;z-index:500;left:10px;right:10px;top:calc(10px + var(--st));
+       display:flex;gap:7px;align-items:center;pointer-events:none;flex-wrap:wrap}
+  .chip{pointer-events:auto;background:var(--card);border:1px solid var(--line);
+        border-radius:999px;padding:7px 12px;font-size:12.5px;font-weight:650;
+        box-shadow:0 4px 18px rgba(10,15,30,.14);white-space:nowrap}
+  #credits{color:var(--ok)} #days{color:var(--warn)}
 
-  /* ---------- locate button ---------- */
-  .locbtn{
-    position:fixed;z-index:500;right:12px;
-    bottom:calc(var(--sheet-peek) + 16px + var(--sb));
-    width:46px;height:46px;border-radius:50%;
-    background:var(--card);border:1px solid var(--line);color:var(--accent);
-    box-shadow:0 5px 20px rgba(10,15,30,.20);
-    display:grid;place-items:center;cursor:pointer;transition:bottom .28s cubic-bezier(.3,.9,.3,1);
-  }
+  /* ---------- locate ---------- */
+  .locbtn{position:fixed;z-index:500;right:12px;
+          bottom:calc(var(--peek) + 16px + var(--sb));
+          width:46px;height:46px;border-radius:50%;background:var(--card);
+          border:1px solid var(--line);color:var(--me);
+          box-shadow:0 5px 20px rgba(10,15,30,.20);display:grid;place-items:center;
+          cursor:pointer;transition:bottom .3s cubic-bezier(.3,.9,.3,1)}
   .locbtn svg{width:21px;height:21px;display:block}
-  .locbtn.up{bottom:calc(78vh + 12px)}
-  .toast{
-    position:fixed;z-index:600;left:50%;transform:translateX(-50%);
-    bottom:calc(var(--sheet-peek) + 74px + var(--sb));
-    background:#1b1e26;color:#fff;font-size:12.5px;font-weight:600;
-    padding:8px 14px;border-radius:999px;opacity:0;transition:opacity .25s;pointer-events:none;
-    box-shadow:0 6px 22px rgba(0,0,0,.3);
-  }
+  .locbtn.up{bottom:calc(var(--sheet-h) + 12px)}
+  .toast{position:fixed;z-index:700;left:50%;transform:translateX(-50%);
+         top:calc(58px + var(--st));background:#1b1e26;color:#fff;font-size:12.5px;
+         font-weight:600;padding:8px 14px;border-radius:999px;opacity:0;
+         transition:opacity .25s;pointer-events:none;box-shadow:0 6px 22px rgba(0,0,0,.3)}
   .toast.on{opacity:1}
 
-  /* ---------- pull-up sheet ---------- */
-  .sheet{
-    position:fixed;z-index:550;left:0;right:0;bottom:0;
-    height:78vh;background:var(--card);
-    border-radius:18px 18px 0 0;
-    box-shadow:0 -8px 34px rgba(10,15,30,.20);
-    display:flex;flex-direction:column;
-    transform:translateY(calc(78vh - var(--sheet-peek)));
-    transition:transform .3s cubic-bezier(.3,.9,.3,1);
-    touch-action:none;
-  }
+  /* ---------- sheet ---------- */
+  .sheet{position:fixed;z-index:550;left:0;right:0;bottom:0;height:var(--sheet-h);
+         background:var(--card);border-radius:18px 18px 0 0;
+         box-shadow:0 -8px 34px rgba(10,15,30,.20);display:flex;flex-direction:column;
+         transform:translateY(calc(var(--sheet-h) - var(--peek)));
+         transition:transform .3s cubic-bezier(.3,.9,.3,1);touch-action:none}
   .sheet.open{transform:translateY(0)}
   .sheet.drag{transition:none}
   .grab{padding:9px 0 5px;display:grid;place-items:center;cursor:grab;flex:0 0 auto}
   .grab i{display:block;width:38px;height:4.5px;border-radius:3px;background:var(--line)}
-  .shead{padding:0 14px 9px;display:flex;gap:8px;align-items:center;flex:0 0 auto}
-  .count{font-size:13px;font-weight:750;letter-spacing:.2px}
+  .shead{padding:0 14px 8px;display:flex;gap:8px;align-items:center;flex:0 0 auto}
+  .count{font-size:13px;font-weight:750}
   .count em{color:var(--muted);font-style:normal;font-weight:500}
   .seg{margin-left:auto;display:flex;background:var(--bg);border:1px solid var(--line);
-       border-radius:9px;overflow:hidden}
+       border-radius:9px;overflow:hidden;flex:0 0 auto}
   .seg button{background:none;border:0;color:var(--muted);font:inherit;font-size:12.5px;
-              font-weight:650;padding:7px 11px;cursor:pointer}
-  .seg button[aria-pressed=true]{background:var(--accent);color:#fff}
-  .srch{padding:0 14px 10px;flex:0 0 auto}
-  .srch input{
-    width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);
-    border-radius:10px;padding:10px 12px;font-size:15px;
-  }
-  .srch input::placeholder{color:var(--muted)}
+              font-weight:650;padding:7px 10px;cursor:pointer}
+  .seg button[aria-pressed=true]{background:var(--pin);color:#fff}
+
+  .filters{padding:0 14px 9px;display:flex;gap:7px;flex-wrap:wrap;flex:0 0 auto}
+  .filters input[type=search]{flex:1 1 130px;min-width:0;background:var(--bg);
+    border:1px solid var(--line);color:var(--ink);border-radius:9px;
+    padding:9px 11px;font-size:15px}
+  .filters select{flex:0 1 auto;max-width:46%;background:var(--bg);
+    border:1px solid var(--line);color:var(--ink);border-radius:9px;
+    padding:9px 8px;font-size:13px;font-weight:600;
+    -webkit-appearance:none;appearance:none}
+  .tog{background:var(--bg);border:1px solid var(--line);color:var(--muted);
+       border-radius:9px;padding:9px 11px;font:inherit;font-size:13px;font-weight:700;
+       cursor:pointer;flex:0 0 auto}
+  .tog[aria-pressed=true]{background:var(--star);border-color:var(--star);color:#fff}
+  .clr{background:none;border:0;color:var(--muted);font:inherit;font-size:12px;
+       text-decoration:underline;cursor:pointer;padding:9px 4px;flex:0 0 auto}
+
   #list{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
         padding-bottom:calc(16px + var(--sb));touch-action:pan-y}
   .item{display:flex;gap:11px;align-items:center;padding:11px 14px;
         border-top:1px solid var(--line);cursor:pointer}
   .item:active{background:var(--bg)}
-  .dot{flex:0 0 auto;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 3px rgba(0,0,0,.05)}
+  .dot{flex:0 0 auto;width:11px;height:11px;border-radius:50%;
+       box-shadow:0 0 0 3px rgba(0,0,0,.05)}
   .body{flex:1 1 auto;min-width:0}
   .nm{font-weight:650;font-size:14.5px;display:flex;gap:5px;align-items:center}
   .nm .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .meta{color:var(--muted);font-size:12.5px;margin-top:1px;
         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dist{flex:0 0 auto;color:var(--accent);font-size:12.5px;font-weight:750;min-width:54px;text-align:right}
+  .dist{flex:0 0 auto;color:var(--pin);font-size:12.5px;font-weight:750;
+        min-width:54px;text-align:right}
   .pill{font-size:9.5px;font-weight:800;padding:1.5px 5px;border-radius:5px;letter-spacing:.3px}
   .pill.dead{background:rgba(229,72,77,.13);color:var(--dead)}
   .pill.off{background:rgba(247,144,9,.14);color:var(--warn)}
-  .empty{padding:30px 16px;text-align:center;color:var(--muted)}
+  .empty{padding:30px 16px;text-align:center;color:var(--muted);line-height:1.6}
 
-  /* ---------- markers ---------- */
+  /* ---------- merchant markers ---------- */
   .pin{position:relative;width:100%;height:100%}
-  .pin b{
-    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-    width:15px;height:15px;border-radius:50%;background:var(--accent);
-    border:3px solid #fff;box-shadow:0 2px 7px rgba(10,15,30,.45);
-  }
-  .pin.s b{width:25px;height:25px;background:var(--star);border-width:3.5px;
-           box-shadow:0 3px 11px rgba(180,120,0,.55)}
-  .pin.s:after{
-    content:"\2605";position:absolute;left:50%;top:50%;
-    transform:translate(-50%,-50%);color:#fff;font-size:13px;line-height:1;
-    text-shadow:0 1px 1px rgba(0,0,0,.35);
-  }
+  .pin b{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+         width:16px;height:16px;border-radius:50%;background:var(--pin);
+         border:3px solid #fff;box-shadow:0 2px 7px rgba(10,15,30,.45)}
+  .pin.s b{width:26px;height:26px;background:var(--star);border-width:3.5px;
+           box-shadow:0 3px 12px rgba(180,120,0,.6)}
+  .pin.s:after{content:"\2605";position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%);color:#fff;font-size:14px;line-height:1;
+    text-shadow:0 1px 1px rgba(0,0,0,.35)}
   .pin.off b{background:var(--warn)}
-  .pin.dead b{background:var(--dead);opacity:.65}
-  .pin.hi b{outline:3px solid var(--accent);outline-offset:3px}
-  .me{width:100%;height:100%;border-radius:50%;background:var(--accent);
-      border:3px solid #fff;box-shadow:0 0 0 6px rgba(47,107,255,.22),0 2px 8px rgba(0,0,0,.35)}
+  .pin.dead b{background:var(--dead);opacity:.6}
+
+  /* ---------- YOU marker: pulsing blue beacon, unlike any merchant pin ---- */
+  .me{position:relative;width:100%;height:100%}
+  .me b{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+        width:18px;height:18px;border-radius:50%;background:var(--me);
+        border:4px solid #fff;box-shadow:0 2px 11px rgba(0,0,0,.45),
+        0 0 0 2px rgba(47,107,255,.55)}
+  .me i{position:absolute;left:50%;top:50%;width:18px;height:18px;
+        transform:translate(-50%,-50%);border-radius:50%;
+        background:rgba(47,107,255,.40);animation:ping 2.1s ease-out infinite}
+  @keyframes ping{
+    0%  {width:18px;height:18px;opacity:.75}
+    70% {opacity:0}
+    100%{width:76px;height:76px;opacity:0}
+  }
+  @media (prefers-reduced-motion: reduce){ .me i{animation:none;opacity:.35} }
 
   .leaflet-popup-content-wrapper{background:var(--card);color:var(--ink);
     border-radius:13px;box-shadow:0 8px 30px rgba(10,15,30,.22)}
@@ -134,10 +141,19 @@
   .leaflet-popup-content{margin:12px 14px;font-size:14px}
   .pop h3{margin:0 0 3px;font-size:15px;line-height:1.25}
   .pop .pm{color:var(--muted);font-size:12.5px;margin-bottom:9px}
-  .pop a{display:inline-block;background:var(--accent);color:#fff;font-weight:700;
+  .pop a{display:inline-block;background:var(--pin);color:#fff;font-weight:700;
          text-decoration:none;padding:8px 13px;border-radius:9px;font-size:13px}
   .pop a.off{background:var(--bg);color:var(--muted);pointer-events:none}
-  .leaflet-control-attribution{font-size:9px;opacity:.6}
+  .legend{position:fixed;z-index:500;left:10px;bottom:calc(var(--peek) + 16px + var(--sb));
+          background:var(--card);border:1px solid var(--line);border-radius:10px;
+          padding:7px 9px;font-size:11px;box-shadow:0 4px 18px rgba(10,15,30,.14);
+          display:flex;flex-direction:column;gap:4px;
+          transition:opacity .25s, bottom .3s cubic-bezier(.3,.9,.3,1)}
+  .legend.hide{opacity:0;pointer-events:none}
+  .legend span{display:flex;align-items:center;gap:6px;color:var(--muted);font-weight:600}
+  .legend u{width:10px;height:10px;border-radius:50%;border:2px solid #fff;
+            box-shadow:0 0 0 1px rgba(0,0,0,.15);flex:0 0 auto}
+  .leaflet-control-attribution{font-size:9px;opacity:.55}
 </style>
 </head>
 <body>
@@ -145,31 +161,45 @@
 <div id="map"></div>
 
 <div class="top">
-  <div class="chip"><span class="n" id="credits"></span></div>
-  <div class="chip"><span class="d" id="days"></span></div>
-  <div class="grow"></div>
+  <div class="chip"><span id="credits"></span></div>
+  <div class="chip"><span id="days"></span></div>
 </div>
 
 <button class="locbtn" id="loc" aria-label="Locate me">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
        stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="3.2"></circle><path d="M12 2v3.2M12 18.8V22M2 12h3.2M18.8 12H22"></path>
+    <circle cx="12" cy="12" r="3.2"></circle>
+    <path d="M12 2v3.2M12 18.8V22M2 12h3.2M18.8 12H22"></path>
     <circle cx="12" cy="12" r="8"></circle>
   </svg>
 </button>
 <div class="toast" id="toast"></div>
+
+<div class="legend" id="legend">
+  <span><u style="background:#2f6bff"></u>you</span>
+  <span><u style="background:#f0a500"></u>starred</span>
+  <span><u style="background:#0d9488"></u>usable</span>
+</div>
 
 <div class="sheet" id="sheet">
   <div class="grab" id="grab"><i></i></div>
   <div class="shead">
     <div class="count" id="count"></div>
     <div class="seg">
-      <button id="bAll"  aria-pressed="true">All</button>
-      <button id="bStar" aria-pressed="false">&#9733;</button>
-      <button id="bOpen" aria-pressed="false">Usable</button>
+      <button id="bOpen" aria-pressed="true">Usable</button>
+      <button id="bAll"  aria-pressed="false">All</button>
     </div>
   </div>
-  <div class="srch"><input type="search" id="q" placeholder="Search name or area…" autocomplete="off"></div>
+  <div class="filters">
+    <input type="search" id="q" placeholder="Search…" autocomplete="off">
+    <button class="tog" id="bStar" aria-pressed="false" title="Starred only">&#9733;</button>
+    <select id="fArea"><option value="">All areas</option></select>
+    <select id="fCat"><option value="">All types</option></select>
+    <select id="fRad" disabled><option value="">Any distance</option>
+      <option value="0.5">&lt; 0.5 mi</option><option value="1">&lt; 1 mi</option>
+      <option value="2">&lt; 2 mi</option><option value="5">&lt; 5 mi</option></select>
+    <button class="clr" id="bClr">reset</button>
+  </div>
   <div id="list"></div>
 </div>
 
@@ -199,12 +229,11 @@ const M = [{"n":"Alborz","a":"1245 Van Ness Ave, San Francisco, CA","h":"Cathedr
 const PROMO_END = "2026-09-10";
 const SF = [37.7749, -122.4194];
 
-/* ---------- header ---------- */
+/* ---------- chips ---------- */
 (function(){
   const end = new Date(PROMO_END + "T23:59:59");
   const days = Math.max(0, Math.ceil((end - new Date()) / 86400000));
-  document.getElementById('days').textContent =
-    days === 0 ? "promo ended" : days + "d left";
+  document.getElementById('days').textContent = days === 0 ? "promo ended" : days + "d left";
   const per = REDEMPTIONS.maxPerCard || 10, cards = REDEMPTIONS.cards || {};
   let used = 0, total = 0;
   for (const k in cards){ used += (cards[k]||[]).length; total += per; }
@@ -213,38 +242,29 @@ const SF = [37.7749, -122.4194];
 })();
 
 /* ---------- map ---------- */
-const map = L.map('map', {zoomControl:false, attributionControl:true})
-             .setView(SF, 12.5);
-
+const map = L.map('map', {zoomControl:false}).setView(SF, 12.5);
 const light = L.tileLayer(
   'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
   {maxZoom:20, subdomains:'abcd', attribution:'&copy; OSM &copy; CARTO'});
 const dark = L.tileLayer(
   'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png',
   {maxZoom:20, subdomains:'abcd', attribution:'&copy; OSM &copy; CARTO'});
-
 const mq = window.matchMedia('(prefers-color-scheme: dark)');
 let base = (mq.matches ? dark : light).addTo(map);
-mq.addEventListener('change', e => {
-  map.removeLayer(base);
-  base = (e.matches ? dark : light).addTo(map);
-});
+mq.addEventListener('change', e => { map.removeLayer(base);
+  base = (e.matches ? dark : light).addTo(map); });
 
-function cls(m){
-  return 'pin' + (m.s ? ' s' : '') + (m.st==='dead' ? ' dead'
-       : m.st==='disabled' ? ' off' : '');
-}
+function cls(m){ return 'pin' + (m.s?' s':'') +
+  (m.st==='dead'?' dead' : m.st==='disabled'?' off' : ''); }
 function icon(m){
-  const sz = m.s ? 32 : 21;
+  const sz = m.s ? 33 : 22;
   return L.divIcon({className:'', html:'<div class="'+cls(m)+'"><b></b></div>',
-                    iconSize:[sz,sz], iconAnchor:[sz/2,sz/2], popupAnchor:[0,-sz/2]});
+    iconSize:[sz,sz], iconAnchor:[sz/2,sz/2], popupAnchor:[0,-sz/2]});
 }
-
 const markers = M.map((m,i) => {
   m._i = i;
   const mk = L.marker([m.y,m.x], {icon:icon(m), zIndexOffset: m.s ? 1000 : 0});
   mk.bindPopup(() => popup(m), {maxWidth:265, closeButton:false});
-  mk.addTo(map);
   return mk;
 });
 
@@ -254,7 +274,7 @@ function popup(m){
   return '<div class="pop"><h3>' + (m.s?'&#9733; ':'') + esc(m.n) + '</h3>'
     + '<div class="pm">' + esc(m.h) + d + (m.a ? '<br>' + esc(m.a) : '')
     + (bad ? '<br><b style="color:#e5484d">ordering page is gone</b>' : '')
-    + (m.st==='disabled' ? '<br><b style="color:#f79009">online ordering switched off</b>' : '')
+    + (m.st==='disabled' ? '<br><b style="color:#f79009">ordering was off on Aug 7 &mdash; may be stale</b>' : '')
     + (m.w && m.w.length ? '<br>' + esc(m.w.join(' · ')) : '')
     + '</div><a class="' + (bad?'off':'') + '" href="' + esc(m.u)
     + '" target="_blank" rel="noopener">' + (bad?'unavailable':'Order &rarr;') + '</a></div>';
@@ -265,19 +285,21 @@ let here = null, meMk = null, meRing = null;
 function toast(t){
   const el = document.getElementById('toast');
   el.textContent = t; el.classList.add('on');
-  setTimeout(()=>el.classList.remove('on'), 3000);
+  setTimeout(()=>el.classList.remove('on'), 3200);
 }
 function setHere(lat, lon, acc){
   here = [lat, lon];
   if (meMk){ map.removeLayer(meMk); map.removeLayer(meRing); }
-  meRing = L.circle(here, {radius:Math.min(acc||60,400), color:'#2f6bff', weight:1,
-                           fillColor:'#2f6bff', fillOpacity:.10}).addTo(map);
-  meMk = L.marker(here, {icon:L.divIcon({className:'', html:'<div class="me"></div>',
-        iconSize:[18,18], iconAnchor:[9,9]}), zIndexOffset:2000}).addTo(map);
+  meRing = L.circle(here, {radius:Math.min(acc||60,400), color:'#2f6bff',
+    weight:1, fillColor:'#2f6bff', fillOpacity:.08}).addTo(map);
+  meMk = L.marker(here, {icon:L.divIcon({className:'',
+    html:'<div class="me"><i></i><b></b></div>', iconSize:[24,24], iconAnchor:[12,12]}),
+    zIndexOffset:3000}).addTo(map);
+  document.getElementById('fRad').disabled = false;
   render();
 }
 function locate(pan){
-  if (!isSecureContext) { toast('needs https for location'); return; }
+  if (!window.isSecureContext){ toast('needs https for location'); return; }
   if (!navigator.geolocation){ toast('geolocation unavailable'); return; }
   navigator.geolocation.getCurrentPosition(
     p => { setHere(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
@@ -298,35 +320,44 @@ function fmt(km){ const mi=km*0.621371;
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+/* ---------- populate filter dropdowns ---------- */
+(function(){
+  const areas = [...new Set(M.map(m=>m.h).filter(Boolean))].sort();
+  const cats  = [...new Set(M.map(m=>m.c).filter(Boolean))].sort();
+  const fa = document.getElementById('fArea'), fc = document.getElementById('fCat');
+  areas.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; fa.append(o); });
+  cats.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; fc.append(o); });
+})();
+
 /* ---------- sheet ---------- */
-const sheet = document.getElementById('sheet');
-const grab  = document.getElementById('grab');
-const locBtn= document.getElementById('loc');
+const sheet=document.getElementById('sheet'), grab=document.getElementById('grab');
+const locBtn=document.getElementById('loc'), legend=document.getElementById('legend');
 let open=false;
 function setOpen(v){
-  open=v; sheet.classList.toggle('open',v); locBtn.classList.toggle('up',v);
+  open=v; sheet.classList.toggle('open',v);
+  locBtn.classList.toggle('up',v); legend.classList.toggle('hide',v);
 }
 grab.addEventListener('click', ()=>setOpen(!open));
 
-let sy=0, sTrans=0, dragging=false;
+let sy=0, sTop=0, dragging=false;
 function onDown(e){
   dragging=true; sy=(e.touches?e.touches[0].clientY:e.clientY);
-  sTrans = sheet.getBoundingClientRect().top;
-  sheet.classList.add('drag');
+  sTop=sheet.getBoundingClientRect().top; sheet.classList.add('drag');
 }
 function onMove(e){
   if(!dragging) return;
   const y=(e.touches?e.touches[0].clientY:e.clientY);
-  const h=sheet.offsetHeight, peek=132;
-  let off = Math.min(Math.max(0, (sTrans - (window.innerHeight-h)) + (y-sy)), h-peek);
+  const h=sheet.offsetHeight, peek=parseFloat(getComputedStyle(document.documentElement)
+    .getPropertyValue('--peek'))||150;
+  const off=Math.min(Math.max(0,(sTop-(window.innerHeight-h))+(y-sy)), h-peek);
   sheet.style.transform='translateY('+off+'px)';
-  e.preventDefault();
+  if(e.cancelable) e.preventDefault();
 }
 function onUp(){
   if(!dragging) return;
   dragging=false; sheet.classList.remove('drag'); sheet.style.transform='';
-  const h=sheet.offsetHeight, top=sheet.getBoundingClientRect().top;
-  setOpen(top < window.innerHeight - h*0.55);
+  const h=sheet.offsetHeight;
+  setOpen(sheet.getBoundingClientRect().top < window.innerHeight - h*0.55);
 }
 grab.addEventListener('touchstart',onDown,{passive:true});
 grab.addEventListener('touchmove',onMove,{passive:false});
@@ -335,22 +366,29 @@ grab.addEventListener('mousedown',onDown);
 window.addEventListener('mousemove',onMove);
 window.addEventListener('mouseup',onUp);
 
-/* ---------- list ---------- */
-let mode='all';
+/* ---------- list + filters ---------- */
+let mode='open', starOnly=false;      /* DEFAULT: usable only */
 const listEl=document.getElementById('list'), qEl=document.getElementById('q');
+const faEl=document.getElementById('fArea'), fcEl=document.getElementById('fCat');
+const frEl=document.getElementById('fRad');
 const COLOR={dead:'var(--dead)',disabled:'var(--warn)'};
 
 function render(){
   const q=qEl.value.trim().toLowerCase();
+  const area=faEl.value, cat=fcEl.value, rad=parseFloat(frEl.value)||0;
+  if(here) M.forEach(m=>m._d=dist(here,m));
+
   let rows=M.filter(m=>{
-    if(mode==='star'&&!m.s) return false;
-    if(mode==='open'&&m.st!=='ok') return false;
+    if(mode==='open' && m.st!=='ok') return false;
+    if(starOnly && !m.s) return false;
+    if(area && m.h!==area) return false;
+    if(cat && m.c!==cat) return false;
+    if(rad && here && m._d*0.621371 > rad) return false;
     if(q && !(m.n.toLowerCase().includes(q)||(m.h||'').toLowerCase().includes(q)
              ||(m.a||'').toLowerCase().includes(q))) return false;
     return true;
   });
   const set=new Set(rows);
-  if(here) rows.forEach(m=>m._d=dist(here,m));
   rows.sort((a,b)=> here ? a._d-b._d : (b.s-a.s)||a.n.localeCompare(b.n));
 
   markers.forEach((mk,i)=>{
@@ -359,15 +397,22 @@ function render(){
     if(!on && map.hasLayer(mk)) map.removeLayer(mk);
   });
 
+  const hidden = M.length - rows.length;
   document.getElementById('count').innerHTML =
-    rows.length + ' place' + (rows.length===1?'':'s') +
-    (here ? ' <em>&middot; nearest first</em>' : ' <em>&middot; pull up for list</em>');
+    rows.length + ' place' + (rows.length===1?'':'s')
+    + (here ? ' <em>&middot; nearest first</em>'
+            : ' <em>&middot; pull up for list</em>')
+    + (hidden ? ' <em>&middot; ' + hidden + ' hidden</em>' : '');
 
-  if(!rows.length){ listEl.innerHTML='<div class="empty">nothing matches</div>'; return; }
-  listEl.innerHTML = rows.map(m=>{
+  if(!rows.length){
+    listEl.innerHTML='<div class="empty">Nothing matches these filters.<br>'
+      + 'Try <b>All</b> or tap <b>reset</b>.</div>';
+    return;
+  }
+  listEl.innerHTML=rows.map(m=>{
     const pill = m.st==='dead' ? '<span class="pill dead">GONE</span>'
-               : m.st==='disabled' ? '<span class="pill off">OFF</span>' : '';
-    const col = COLOR[m.st] || (m.s ? 'var(--star)' : 'var(--accent)');
+               : m.st==='disabled' ? '<span class="pill off">OFF?</span>' : '';
+    const col = COLOR[m.st] || (m.s ? 'var(--star)' : 'var(--pin)');
     return '<div class="item" data-i="'+m._i+'">'
       + '<span class="dot" style="background:'+col+'"></span>'
       + '<div class="body"><div class="nm"><span class="t">'
@@ -382,14 +427,26 @@ listEl.addEventListener('click', e=>{
   const m=M[+it.dataset.i];
   setOpen(false);
   setTimeout(()=>{ map.setView([m.y,m.x], Math.max(map.getZoom(),16));
-                   markers[m._i].openPopup(); }, 260);
+                   markers[m._i].openPopup(); }, 270);
 });
-qEl.addEventListener('input', render);
+[qEl,faEl,fcEl,frEl].forEach(el=>el.addEventListener('input',render));
+
 function seg(id,val){ document.getElementById(id).addEventListener('click',()=>{
-  mode=val; ['bAll','bStar','bOpen'].forEach(b=>
+  mode=val; ['bOpen','bAll'].forEach(b=>
     document.getElementById(b).setAttribute('aria-pressed',String(b===id)));
   render(); }); }
-seg('bAll','all'); seg('bStar','star'); seg('bOpen','open');
+seg('bOpen','open'); seg('bAll','all');
+
+document.getElementById('bStar').addEventListener('click', e=>{
+  starOnly=!starOnly; e.currentTarget.setAttribute('aria-pressed',String(starOnly)); render();
+});
+document.getElementById('bClr').addEventListener('click', ()=>{
+  qEl.value=''; faEl.value=''; fcEl.value=''; frEl.value='';
+  starOnly=false; document.getElementById('bStar').setAttribute('aria-pressed','false');
+  mode='open'; document.getElementById('bOpen').setAttribute('aria-pressed','true');
+  document.getElementById('bAll').setAttribute('aria-pressed','false');
+  render();
+});
 
 render();
 locate(false);
