@@ -180,18 +180,23 @@ billing account, so I used Overpass, which is free and keyless.
 ### Backfill result: 3 new merchants
 
 Method: OSM name → candidate Clover slug → DNS lookup → storefront
-confirmation. **11,412 slugs probed, 5 DNS hits, 3 confirmed in SF.**
+confirmation. Run twice: SF-only (11,412 probes) then SF + Peninsula with
+per-city slug suffixes (**18,496 probes, 6 DNS hits, 4 confirmed in area**).
 
 | Slug | Storefront name | Storefront city | Verdict |
 |---|---|---|---|
 | `dancing-yak-san-francisco` | DANCING YAK | SAN FRANCISCO | **new SF merchant** |
 | `krispy-krunchy-chicken-san-francisco` | KRISPY KRUNCHY CHICKEN | SAN FRANCISCO | **new SF merchant** |
 | `taqueria-san-jose-san-francisco` | TAQUERIA SAN JOSE | SAN FRANCISCO | **new SF merchant** |
+| `taqueria-dos-charros-daly-city` | TAQUERIA DOS CHARROS | DALY CITY | **new Peninsula merchant** |
 | `the-outsider` | The Outsider | MANISTEE | rejected — Michigan |
 | `krispy-krunchy-chicken` | KRISPY KRUNCHY CHICKEN | PLANO | rejected — Texas |
 
-All three confirmed merchants report `paze.supported: true`. They appear in
+All four confirmed merchants report `paze.supported: true`. They appear in
 `data/sf-candidates.csv` with `sources=inferred`.
+
+The Peninsula pass added exactly one merchant (Daly City) from 7,084 extra
+probes — a poor rate, but it is a real merchant that neither map lists.
 
 Worth noting: `krispy-krunchy-chicken-san-francisco` is very likely the live
 replacement page for `tl-kitchen-krispy-krunchy-chicken-san-francisco`, an
@@ -210,7 +215,7 @@ name (`python3 scripts/slugrules.py` reports this), because a large minority of
 Clover slugs simply do not derive from the display name — `Copper Chimney` is
 `curry-kabab`, `Rockridge` is `united-dumplings`, `Catch Seafood` is
 `catch-french-bistro`. Starting from OSM names, which differ again from the
-registered names, compounds that. **Three finds is a floor, not a ceiling** —
+registered names, compounds that. **Four finds is a floor, not a ceiling** —
 there are probably more SF Clover merchants that neither map lists and this
 method cannot reach. See `notes/cohesion.md` for what that means for coverage
 confidence.

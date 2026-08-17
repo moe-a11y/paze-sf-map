@@ -18,9 +18,9 @@
 > required, not optional.
 
 **Short answer: they are one upstream dataset, sampled at different dates.**
-The 24% disagreement between them is almost entirely *staleness*, not
+The 21% disagreement between them is almost entirely *staleness*, not
 independent coverage. nextcard is the fresher, richer copy and you can treat it
-as authoritative for SF.
+as authoritative for this area.
 
 One caveat up front: this is a **two-source** comparison, not the three-source
 one the brief asked for. `pazemap.com` disallows this agent in robots.txt, so
@@ -31,9 +31,6 @@ that gap is probably small — but it is an argument, not a measurement.
 
 ## The overlap table
 
-Entities resolved across the SF slice, matched on normalized `cloveronline`
-subdomain first and a name + street-address key second:
-
 Entities resolved across the expanded area, matched on normalized
 `cloveronline` subdomain first and a name + street-address key second:
 
@@ -42,7 +39,7 @@ Entities resolved across the expanded area, matched on normalized
 | In **both** sources | 166 | 79.4% |
 | **nextcard** only | 35 | 16.7% |
 | **awardhelper** only | 8 | 3.8% |
-| Backfill only (`inferred`) | 3 | — |
+| Backfill only (`inferred`) | 4 | — |
 | **Total rows** | **212** | |
 
 Per-source recall against the two-map union: **nextcard 96.2%**,
@@ -58,7 +55,7 @@ check below shows that reading is wrong.**
 
 ## The liveness check that settles it
 
-Every one of the 144 `clover_url`s was resolved and fetched at its root
+Every one of the 212 `clover_url`s was resolved and fetched at its root
 (1 req/sec; `/checkout/` never touched — it is robots-disallowed on merchant
 subdomains anyway). Results by bucket:
 
@@ -67,7 +64,7 @@ subdomains anyway). Results by bucket:
 | Both sources | 166 | 2 | 1.2% |
 | nextcard only | 35 | **0** | **0.0%** |
 | awardhelper only | 8 | **7** | **87.5%** |
-| Backfill (`inferred`) | 3 | 0 | 0.0% |
+| Backfill (`inferred`) | 4 | 0 | 0.0% |
 | All | 212 | 9 | 4.2% |
 
 Widening the area made the signal *stronger*, not weaker: awardhelper's
@@ -78,7 +75,7 @@ The SF-only seven were re-checked individually with `host` and all seven are tru
 `NXDOMAIN` — the ordering subdomain has been withdrawn, not a transient blip.
 A live control (`alborz-san-francisco`) resolves normally.
 
-That 83% vs 0% split is the whole story. If the two sites had assembled their
+That 87.5% vs 0% split is the whole story. If the two sites had assembled their
 lists independently, each one's exclusives would look statistically alike.
 Instead:
 
@@ -86,11 +83,11 @@ Instead:
   harvested and have since been taken down. It is not finding merchants
   nextcard missed; it is *failing to notice* merchants nextcard has already
   dropped.
-- **nextcard's 28 exclusives are 100% live** — these are real merchants
+- **nextcard's 35 exclusives are 100% live** — these are real merchants
   awardhelper simply has not picked up yet.
 
 The dates corroborate it exactly. nextcard's snapshot is stamped
-`2026-08-07` (9 days old). Every awardhelper SF record carries
+`2026-08-07`. Every awardhelper record in this area carries
 `lastSeenActive: 2026-06-22` (~8 weeks old). Six extra weeks of merchant churn
 in a long-tail restaurant population is more than enough to produce a 24%
 symmetric-difference.
@@ -103,14 +100,14 @@ slug `soy-grill-teriyaki-portland`, address *"9738 Sf Washington St #w,
 default San Francisco centroid — which is why it fell inside the bounding box
 at all. It is a geocoding failure, not an SF merchant.
 
-**So awardhelper contributes zero genuine live SF merchants that nextcard does
-not already have.** Its practical marginal value for this project is nil.
+**So awardhelper contributes zero genuine live merchants that nextcard does not
+already have.** Its practical marginal value for this project is nil.
 
 ## Evidence they share one upstream
 
 Beyond the liveness asymmetry:
 
-1. **Identical slug strings.** All 110 shared merchants match on the exact
+1. **Identical slug strings.** All 166 shared merchants match on the exact
    `cloveronline` subdomain, including irregular ones no two independent
    harvesters would coin the same way — `angel-cafe-deli-san-francisco8`,
    `tacos-el-patron-sf-san-francisco-2`, `crostiniandjavasf`,
@@ -130,12 +127,14 @@ in when they last looked and how much they decorate the result.
 ## What this means for the build
 
 Per step 3's decision rule, high cohesion means "pick the richest one and move
-on." The measured 76.4% says otherwise, but the diagnosis says the divergence
+on." The measured 79.4% says otherwise, but the diagnosis says the divergence
 is staleness — so the *spirit* of the rule applies: **nextcard is the richest
-and freshest, and it alone yields 136 of the 137 live merchants (99.3%).**
+and freshest, and it alone covers 198 of the 203 live merchants (97.5%).** The
+five it misses are the four backfill finds plus awardhelper's one live
+exclusive, which is the mis-geocoded Portland record.
 
 I still shipped the union, because the brief prioritizes recall and the cost of
-carrying 7 dead rows is one glance each. They are flagged
+carrying 9 dead rows is one glance each. They are flagged
 `clover-url-dead(unreachable)` in the `notes` column so you can filter them in
 one pass.
 
@@ -143,26 +142,26 @@ one pass.
 
 Because measured cohesion was below 90%, step 5's backfill ran: OpenStreetMap
 POI names → predicted Clover slugs → DNS resolution → storefront confirmation.
-**11,412 slugs probed, 5 DNS hits, 3 confirmed San Francisco merchants that
-neither map lists.**
+**18,496 slugs probed, 6 DNS hits, 4 confirmed merchants that neither map
+lists** (3 in SF, 1 in Daly City).
 
 That is a genuinely independent probe — it starts from a street-level POI
 census rather than from anyone's Clover harvest — and it says two things at
 once:
 
-- **The maps are not complete.** Three real, live, Paze-enabled SF merchants
-  were missing from both. One of them,
+- **The maps are not complete.** Four real, live, Paze-enabled merchants were
+  missing from both. One of them,
   `krispy-krunchy-chicken-san-francisco`, appears to be the replacement page
   for a merchant awardhelper still lists at a now-dead URL. Both maps missed
   the migration.
-- **But they are not badly incomplete either.** A 4,710-name sweep of SF
-  surfaced only three additions to a 144-merchant list.
+- **But they are not badly incomplete either.** A 5,771 name+city sweep of the
+  whole area surfaced only four additions to a 212-merchant list.
 
 The second point needs a caveat that cuts against it: this method's recall is
 poor by construction. Slug prediction reproduces only 64.8% of *known* slugs
 even when fed the merchant's exact registered name, because many Clover slugs
 bear no relation to the display name at all. Feeding it OSM names compounds the
-error. **Three is a floor on what's missing, not a ceiling.**
+error. **Four is a floor on what's missing, not a ceiling.**
 
 ## The pazemap.com gap
 
