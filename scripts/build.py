@@ -137,7 +137,7 @@ def build_row(source, source_id, name, addr, city, state, lat, lon, url,
             flags.append("coords-in-sf-but-address-says(%s)" % canon)
     elif canon in geo.TARGET_CITIES:
         area = canon
-        if "box" not in why:
+        if "box" not in why and canon not in geo.BOXLESS_CITIES:
             flags.append("coords-outside-area(recovered-by-%s)" % why)
     else:
         area = canon or geo.nearest_city(lat, lon)
@@ -293,19 +293,24 @@ def resolve_entities(rows):
     # when the slug and the street string both differ. Catches cases like
     # "Taqueria el Gran Amigo" holding two Clover pages at one address whose
     # street text is spelled two ways ("Serramonte" / "Serremonte").
-    by_name = defaultdict(list)
-    for i, r in enumerate(rows):
-        nm = norm_name(r["name"])
-        if nm:
-            by_name[nm].append(i)
-    for nm, idxs in by_name.items():
-        for a in range(len(idxs)):
-            for b in range(a + 1, len(idxs)):
-                ra, rb = rows[idxs[a]], rows[idxs[b]]
-                # ~60 m in degrees; longitude scaled for this latitude band
-                if (abs(ra["lat"] - rb["lat"]) < 0.00055
-                        and abs(ra["lon"] - rb["lon"]) < 0.00070):
-                    union(idxs[a], idxs[b])
+    near = [(i, r, set(norm_name(r["name"]).split())) for i, r in enumerate(rows)]
+    for a in range(len(near)):
+        ia, ra, ta = near[a]
+        if not ta:
+            continue
+        for b in range(a + 1, len(near)):
+            ib, rb, tb = near[b]
+            if not tb:
+                continue
+            # ~60 m in degrees; longitude scaled for this latitude band
+            if (abs(ra["lat"] - rb["lat"]) >= 0.00055
+                    or abs(ra["lon"] - rb["lon"]) >= 0.00070):
+                continue
+            # same name, or one name is the other plus a qualifier
+            # ("La Lupita Mexican" / "La Lupita Mexican Eatery")
+            small, big = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+            if len(small) >= 2 and small <= big:
+                union(ia, ib)
 
     groups = defaultdict(list)
     for i, r in enumerate(rows):

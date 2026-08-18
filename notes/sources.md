@@ -7,10 +7,17 @@ only. No checkout flow was touched on any merchant site.
 
 Assessment date: **2026-08-16**.
 
-**Scope:** San Francisco plus the northern Peninsula (Daly City through San
-Mateo / Burlingame / San Carlos). 212 merchants. Selection uses three parallel
-recall channels — coordinates, city+state text, and Clover slug — since
-coordinate-only filtering drops wrongly-geocoded records.
+**Scope:** San Francisco, the northern Peninsula (Daly City through San Mateo /
+Burlingame / San Carlos), and **Richmond, CA** (East Bay, added on request).
+220 merchants. Selection uses three parallel recall channels — coordinates,
+city+state text, and Clover slug — since coordinate-only filtering drops
+wrongly-geocoded records.
+
+Richmond is matched by **city text and slug only, with no bounding box**: any
+box wide enough to cover Richmond also sweeps in El Cerrito, San Pablo, Pinole
+and Hercules, which are out of scope. Note that `richmond` had to be removed
+from the non-target slug list, and that SF's Inner/Outer Richmond are
+*neighbourhood* names from the DataSF polygons, so they are unaffected.
 
 ---
 

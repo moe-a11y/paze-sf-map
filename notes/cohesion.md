@@ -3,8 +3,10 @@
 > **Scope note (updated).** This project originally covered San Francisco
 > proper. It now covers **SF plus the northern Peninsula** — Daly City, Colma,
 > Brisbane, South SF, San Bruno, Millbrae, Burlingame, Hillsborough, San Mateo,
-> Foster City, Pacifica, Belmont, San Carlos. Totals below are the expanded
-> area: **212 merchants**, up from 147 SF-only.
+> Foster City, Pacifica, Belmont, San Carlos — plus **Richmond, CA** in the
+> East Bay. Totals below are the expanded area: **220 merchants**, up from
+> 147 SF-only. (Overlap figures in the tables below were measured at the
+> 212-merchant stage, before Richmond was added; the pattern is unchanged.)
 >
 > Selection now runs **three parallel recall channels** — coordinates, city +
 > state text, and the Clover slug — because coordinate-only filtering silently

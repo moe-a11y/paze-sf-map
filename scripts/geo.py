@@ -24,7 +24,15 @@ TARGET_CITIES = {
     "San Francisco", "Daly City", "Colma", "Brisbane", "South San Francisco",
     "San Bruno", "Millbrae", "Burlingame", "Hillsborough", "San Mateo",
     "Foster City", "Pacifica", "Broadmoor", "Belmont", "San Carlos",
+    # East Bay, added on request. Matched by city text + slug only -- there is
+    # deliberately NO Richmond bounding box, because one wide enough to cover
+    # Richmond also sweeps in El Cerrito, San Pablo, Pinole and Hercules.
+    "Richmond",
 }
+
+# Target cities deliberately matched by text only, with no bounding box.
+# Rows for these are expected to sit outside BOX, so that is not worth flagging.
+BOXLESS_CITIES = {"Richmond"}
 
 # Spelling variants seen in the feeds -> canonical name.
 CITY_ALIASES = {
@@ -56,6 +64,7 @@ CITY_CENTRES = [
     ("Pacifica", 37.6138, -122.4869),
     ("Belmont", 37.5202, -122.2758),
     ("San Carlos", 37.5072, -122.2605),
+    ("Richmond", 37.9358, -122.3477),
 ]
 
 # Clover slug suffixes for each target city, most common form first.
@@ -74,6 +83,7 @@ CITY_SLUG_SUFFIXES = {
     "Pacifica": ["pacifica"],
     "Belmont": ["belmont"],
     "San Carlos": ["san-carlos"],
+    "Richmond": ["richmond"],
 }
 
 # Slug suffixes that name a city OUTSIDE the target area.
@@ -81,6 +91,7 @@ NON_TARGET_SLUG_CITIES = (
     "portland", "riverside", "vallejo", "sacramento", "redding", "oakland",
     "san-jose", "berkeley", "los-angeles", "san-diego", "fresno", "stockton",
     "modesto", "hayward", "fremont", "elk-grove", "durham", "nicasio",
+    "pinole", "hercules", "el-cerrito", "san-pablo", "el-sobrante", "albany",
 )
 
 

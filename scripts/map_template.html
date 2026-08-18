@@ -61,9 +61,18 @@
          transition:transform .3s cubic-bezier(.3,.9,.3,1);touch-action:none}
   .sheet.open{transform:translateY(0)}
   .sheet.drag{transition:none}
-  .grab{padding:9px 0 5px;display:grid;place-items:center;cursor:grab;flex:0 0 auto}
-  .grab i{display:block;width:38px;height:4.5px;border-radius:3px;background:var(--line)}
-  .shead{padding:0 14px 8px;display:flex;gap:8px;align-items:center;flex:0 0 auto}
+  /* Whole header is the drag zone, not just the thin bar. */
+  .grab{position:relative;padding:11px 0 7px;display:grid;place-items:center;
+        cursor:grab;flex:0 0 auto;touch-action:none}
+  .grab i{display:block;width:44px;height:5px;border-radius:3px;background:var(--line)}
+  .chev{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+        width:38px;height:38px;border-radius:50%;border:1px solid var(--line);
+        background:var(--bg);color:var(--muted);display:grid;place-items:center;
+        cursor:pointer;padding:0}
+  .chev svg{width:19px;height:19px;transition:transform .3s cubic-bezier(.3,.9,.3,1)}
+  .sheet.open .chev svg{transform:rotate(180deg)}
+  .shead{padding:0 14px 8px;display:flex;gap:8px;align-items:center;flex:0 0 auto;
+         cursor:grab;touch-action:none}
   .count{font-size:13px;font-weight:750}
   .count em{color:var(--muted);font-style:normal;font-weight:500}
   .seg{margin-left:auto;display:flex;background:var(--bg);border:1px solid var(--line);
@@ -182,7 +191,13 @@
 </div>
 
 <div class="sheet" id="sheet">
-  <div class="grab" id="grab"><i></i></div>
+  <div class="grab" id="grab">
+    <i></i>
+    <button class="chev" id="chev" aria-label="Toggle list" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>
+    </button>
+  </div>
   <div class="shead">
     <div class="count" id="count"></div>
     <div class="seg">
@@ -323,45 +338,82 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,
 })();
 
 /* ---------- sheet ---------- */
+const listEl=document.getElementById('list');
 const sheet=document.getElementById('sheet'), grab=document.getElementById('grab');
 const locBtn=document.getElementById('loc'), legend=document.getElementById('legend');
 let open=false;
 function setOpen(v){
   open=v; sheet.classList.toggle('open',v);
   locBtn.classList.toggle('up',v); legend.classList.toggle('hide',v);
+  document.getElementById('chev').setAttribute('aria-expanded', String(v));
 }
-grab.addEventListener('click', ()=>setOpen(!open));
+function tapToggle(e){
+  // ignore the click that ends a drag
+  if (Math.abs(lastY - sy) > 6) return;
+  e.stopPropagation();
+  setOpen(!open);
+}
+grab.addEventListener('click', tapToggle);
 
-let sy=0, sTop=0, dragging=false;
-function onDown(e){
-  dragging=true; sy=(e.touches?e.touches[0].clientY:e.clientY);
-  sTop=sheet.getBoundingClientRect().top; sheet.classList.add('drag');
+/* Drag from anywhere in the header, plus swipe-down from the top of the list.
+   Velocity is taken into account so a quick flick works as well as a slow drag. */
+const PEEK = () => parseFloat(getComputedStyle(document.documentElement)
+  .getPropertyValue('--peek')) || 150;
+
+let sy=0, sTop=0, sT=0, lastY=0, lastT=0, dragging=false, fromList=false;
+
+function pointY(e){ return e.touches ? e.touches[0].clientY : e.clientY; }
+
+function onDown(e, viaList){
+  if (viaList && listEl.scrollTop > 0) return;   // let the list scroll first
+  fromList = !!viaList;
+  dragging = true;
+  sy = lastY = pointY(e);
+  sT = lastT = Date.now();
+  sTop = sheet.getBoundingClientRect().top;
+  sheet.classList.add('drag');
 }
 function onMove(e){
   if(!dragging) return;
-  const y=(e.touches?e.touches[0].clientY:e.clientY);
-  const h=sheet.offsetHeight, peek=parseFloat(getComputedStyle(document.documentElement)
-    .getPropertyValue('--peek'))||150;
-  const off=Math.min(Math.max(0,(sTop-(window.innerHeight-h))+(y-sy)), h-peek);
-  sheet.style.transform='translateY('+off+'px)';
-  if(e.cancelable) e.preventDefault();
+  const y = pointY(e), h = sheet.offsetHeight, peek = PEEK();
+  const delta = y - sy;
+  if (fromList && delta < 0) return;             // upward swipe in list = scroll
+  const off = Math.min(Math.max(0, (sTop - (window.innerHeight - h)) + delta), h - peek);
+  sheet.style.transform = 'translateY(' + off + 'px)';
+  lastY = y; lastT = Date.now();
+  if (e.cancelable) e.preventDefault();
 }
 function onUp(){
   if(!dragging) return;
-  dragging=false; sheet.classList.remove('drag'); sheet.style.transform='';
-  const h=sheet.offsetHeight;
-  setOpen(sheet.getBoundingClientRect().top < window.innerHeight - h*0.55);
+  dragging = false;
+  sheet.classList.remove('drag');
+  const h = sheet.offsetHeight;
+  const top = sheet.getBoundingClientRect().top;
+  sheet.style.transform = '';
+  // flick wins over position
+  const dt = Math.max(1, lastT - sT);
+  const v = (lastY - sy) / dt;                   // px per ms, +down / -up
+  if (v < -0.45)      setOpen(true);
+  else if (v > 0.45)  setOpen(false);
+  else                setOpen(top < window.innerHeight - h * 0.55);
+  fromList = false;
 }
-grab.addEventListener('touchstart',onDown,{passive:true});
-grab.addEventListener('touchmove',onMove,{passive:false});
-grab.addEventListener('touchend',onUp);
-grab.addEventListener('mousedown',onDown);
-window.addEventListener('mousemove',onMove);
-window.addEventListener('mouseup',onUp);
+
+[grab, document.querySelector('.shead')].forEach(el => {
+  el.addEventListener('touchstart', e => onDown(e,false), {passive:true});
+  el.addEventListener('touchmove',  onMove, {passive:false});
+  el.addEventListener('touchend',   onUp);
+  el.addEventListener('mousedown',  e => onDown(e,false));
+});
+listEl.addEventListener('touchstart', e => onDown(e,true), {passive:true});
+listEl.addEventListener('touchmove',  onMove, {passive:false});
+listEl.addEventListener('touchend',   onUp);
+window.addEventListener('mousemove', onMove);
+window.addEventListener('mouseup',   onUp);
 
 /* ---------- list + filters ---------- */
 let mode='open', starOnly=false;      /* DEFAULT: usable only */
-const listEl=document.getElementById('list'), qEl=document.getElementById('q');
+const qEl=document.getElementById('q');
 const faEl=document.getElementById('fArea'), fcEl=document.getElementById('fCat');
 const frEl=document.getElementById('fRad');
 const COLOR={dead:'var(--dead)',disabled:'var(--warn)'};
@@ -372,7 +424,9 @@ function render(){
   if(here) M.forEach(m=>m._d=dist(here,m));
 
   let rows=M.filter(m=>{
-    if(mode==='open' && m.st!=='ok') return false;
+    /* starred places always show, even if dead or ordering-off --
+       their badge still tells you the status */
+    if(mode==='open' && m.st!=='ok' && !m.s) return false;
     if(starOnly && !m.s) return false;
     if(area && m.h!==area) return false;
     if(cat && m.c!==cat) return false;
